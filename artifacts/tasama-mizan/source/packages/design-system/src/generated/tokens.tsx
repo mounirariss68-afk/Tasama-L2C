@@ -121,8 +121,8 @@ export const tokens = {
     },
     "backdrop": {
       "light": {
-        "deep": "#E7EBF7",
-        "mid": "#F5F7FC",
+        "deep": "#F3F5FA",
+        "mid": "#F8F9FC",
         "hi": "#FFFFFF"
       },
       "dark": {

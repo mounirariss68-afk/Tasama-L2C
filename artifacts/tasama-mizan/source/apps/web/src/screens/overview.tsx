@@ -45,14 +45,14 @@ export function OverviewScreen() {
   return (
     <>
       <PageHero
+        tone="surface"
         eyebrow={`Revenue operations · as of ${world.asOf} · close day ${world.closeDay} of 10`}
         title={<>{period(world.closingPeriod)} close</>}
         lede={headline}
-        feature={<HeroFeature label="Unbilled revenue" value={money(unb, 'SAR', { compact: true })} support={`${world.events.filter((e) => ['due', 'missed', 'blocked_coc'].includes(eventStatusSafe(world, e))).length} billing events delivered and not invoiced`} />}
         actions={
           <>
-            <button type="button" onClick={() => go('close')} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-white/30 hover:bg-white/25">Open the close <ArrowRight size={14} /></button>
-            <button type="button" onClick={() => go('inbox')} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white/85 hover:bg-white/10">{inbox.length} waiting on {persona.name.split(' ')[0]}</button>
+            <button type="button" onClick={() => go('close')} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">Open the close <ArrowRight size={14} /></button>
+            <button type="button" onClick={() => go('inbox')} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5">{inbox.length} waiting on {persona.name.split(' ')[0]}</button>
           </>
         }
       >
@@ -62,6 +62,9 @@ export function OverviewScreen() {
           <Chip tone={close.blocked ? 'danger' : 'muted'}>{close.blocked} blocked</Chip>
           <Chip tone="muted">{close.notStarted} not started</Chip>
           <Chip tone="muted">Hard close Day 10 · target Day 5</Chip>
+        </div>
+        <div className="mt-5 max-w-md">
+          <HeroFeature label="Unbilled revenue" value={money(unb, 'SAR', { compact: true })} support={`${world.events.filter((e) => ['due', 'missed', 'blocked_coc'].includes(eventStatusSafe(world, e))).length} billing events delivered and not invoiced`} />
         </div>
       </PageHero>
 

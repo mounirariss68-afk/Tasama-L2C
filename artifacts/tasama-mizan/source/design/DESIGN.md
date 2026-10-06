@@ -169,7 +169,7 @@ Switching persona changes the inbox, the approvable set, the amounts and the men
 
 | Persona | Role | May approve | Sees |
 |---|---|---|---|
-| Noura Al-Harbi | Chief Financial Officer | Close sign-off; write-offs; credit notes > SAR 250k; reforecast | Everything; Overview first |
+| Saed Hussein | Chief Financial Officer | Close sign-off; write-offs; credit notes > SAR 250k; reforecast | Everything; Overview first |
 | Faisal Al-Dossary | Head of Revenue & Treasury | Invoice release (any amount); dunning to PIF/Gov; cash application overrides; bank rec sign-off | Overview, Inbox, Lead to Cash, Documents, Close, Agents, Settings |
 | Reem Al-Qahtani | Accounting Manager | Journals (accruals, deferrals, adjustments); vendor invoice matches; close checklist items | Inbox, Documents, Close, Agents, Settings |
 | Omar Siddiqui | Accountant | Prepares; approves nothing above SAR 50k; runs reconciliations | Inbox, Documents, Close |

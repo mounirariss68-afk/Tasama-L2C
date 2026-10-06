@@ -1,6 +1,7 @@
 /**
  * Personas. Switching one changes the inbox, the approvable set, the amounts
- * and the menu. Names are fictional; roles follow Tasama's organisation
+ * and the menu. Names are demo placeholders unless supplied by the user;
+ * roles follow Tasama's organisation
  * (Chief Finance → Accounting, Revenue & Treasury, Reporting & Budgeting;
  * Chief Commercial → Key Account Management; Chief Operations → Service
  * Delivery). Amount limits are placeholders until Tasama's DoA is supplied.
@@ -22,7 +23,7 @@ export type PersonaDef = {
 };
 
 export const PERSONAS: PersonaDef[] = [
-  { id: 'noura', name: 'Noura Al-Harbi', role: 'Chief Financial Officer', initials: 'NH', remit: 'Owns the close, the forecast and the numbers that go to the board.', authority: 'Close sign-off; write-offs; credit notes above SAR 250,000; reforecast; anything below.', restrictions: 'None.', limit: null, nav: ['overview', 'inbox', 'l2c', 'documents', 'close', 'agents', 'settings'], clients: [] },
+  { id: 'noura', name: 'Saed Hussein', role: 'Chief Financial Officer', initials: 'SH', remit: 'Owns the close, the forecast and the numbers that go to the board.', authority: 'Close sign-off; write-offs; credit notes above SAR 250,000; reforecast; anything below.', restrictions: 'None.', limit: null, nav: ['overview', 'inbox', 'l2c', 'documents', 'close', 'agents', 'settings'], clients: [] },
   { id: 'faisal', name: 'Faisal Al-Dossary', role: 'Head of Revenue & Treasury', initials: 'FD', remit: 'Billing, collections, cash and bank — from the signed PO to the applied receipt.', authority: 'Invoice release (any amount); dunning to PIF and Government accounts; cash-application overrides; billing-schedule confirmation.', restrictions: 'Cannot post journals or sign the close.', limit: 5_000_000, nav: ['overview', 'inbox', 'l2c', 'documents', 'close', 'agents', 'settings'], clients: [] },
   { id: 'reem', name: 'Reem Al-Qahtani', role: 'Accounting Manager', initials: 'RQ', remit: 'The ledger: journals, vendor matches, bank reconciliations, the close checklist.', authority: 'Journals (accruals, deferrals, adjustments); vendor invoice matches; bank reconciliation sign-off; close items.', restrictions: 'Does not release client invoices or approve dunning.', limit: 1_000_000, nav: ['inbox', 'documents', 'close', 'agents', 'settings'], clients: [] },
   { id: 'omar', name: 'Omar Siddiqui', role: 'Accountant', initials: 'OS', remit: 'Prepares: uploads statements and vendor invoices, reviews matches, runs reconciliations.', authority: 'Approves nothing above SAR 50,000; applies cash the agent proposed up to that amount.', restrictions: 'No journal approval, no invoice release, no sign-off.', limit: 50_000, nav: ['inbox', 'documents', 'close', 'settings'], clients: [] },

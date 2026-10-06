@@ -417,11 +417,11 @@
   /* Light-mode backdrop: gradient stops (also the fallback while the
      wallpaper art loads) plus the wallpaper layer itself — brand.backdrop
      and brand.backdropArt. */
-  --backdrop-deep: #E7EBF7;
-  --backdrop-mid: #F5F7FC;
+  --backdrop-deep: #F3F5FA;
+  --backdrop-mid: #F8F9FC;
   --backdrop-hi: #FFFFFF;
   --backdrop-art: url('/brand/light-backdrop.webp');
-  --backdrop-art-opacity: 1;
+  --backdrop-art-opacity: 0.10;
 
   /* The .page-hero dark island — brand.hero. Same surface in both themes. */
   --hero-background: 234 86.3% 20%;
@@ -475,7 +475,7 @@
   --backdrop-hi: #101744;
   --backdrop-art: url('/brand/dark-backdrop.webp');
   --brand-highlight-ink: #B6DA98;
-  --backdrop-art-opacity: 0.62;
+  --backdrop-art-opacity: 0.12;
 }
 
 @theme inline {

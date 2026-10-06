@@ -1,1 +1,3 @@
 - [Assistant requirements](assistant-requirements.md) — user requires live Claude request processing; the archive's rule-based matcher is not a substitute.
+- [Visual direction](visual-direction.md) — Tasama blue headings and a much subtler background; keep financial information easy to read.
+- [Preview verification](preview-verification.md) — repeated screenshot URLs may show a cached app shell after rebuild; verify fresh assets before editing again.

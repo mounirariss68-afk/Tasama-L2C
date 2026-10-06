@@ -28,7 +28,7 @@ const state = async () => SERVER ? { world: await (await fetch(SERVER + '/api/wo
 
 // Persona → CFO (can approve everything)
 await page.getByRole('button', { name: /Faisal Al-Dossary/ }).first().click();
-await page.getByRole('button', { name: /Noura Al-Harbi/ }).click();
+await page.getByRole('button', { name: /Saed Hussein/ }).click();
 await page.waitForTimeout(300);
 let s = await state();
 console.log('persona', await page.evaluate(() => localStorage.getItem('mizan-persona')), 'rev', s.world?.flags.rev ?? 'seed (nothing stored yet)');

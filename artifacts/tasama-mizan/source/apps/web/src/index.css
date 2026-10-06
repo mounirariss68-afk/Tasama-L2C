@@ -15,6 +15,11 @@
 /* The design system's theme: Tailwind, plugins, tokens and the brand layer. */
 @import "@cognirise/atelier/styles.css";
 
+/* Tasama ultramarine headings; the dark theme uses its accessible blue tint. */
+h1, h2, h3, h4, h5, h6 {
+  color: hsl(var(--primary));
+}
+
 /* Posting previews and raw bank descriptions are long; let them wrap inside
    the reader rather than pushing the column. */
 pre { white-space: pre-wrap; word-break: break-word; }
