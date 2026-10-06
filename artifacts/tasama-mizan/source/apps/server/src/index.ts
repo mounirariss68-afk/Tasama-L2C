@@ -18,6 +18,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyAction, type Action } from '@mizan/domain/actions';
 import { ensureSchema, isSeeded, loadWorld, pool, reseed, saveWorld } from './store';
+import { chat, claudeConfigured, confirmedProposal, consumeProposal } from './assistant';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(here, '../../web/dist');
@@ -99,6 +100,42 @@ app.post('/api/reset', async (_req, res) => {
 });
 
 /* ------------------------------------------------------------ CogniDocs proxy: /api/cognidocs/* → ${BASE}/* with X-API-Key from the environment (or the request, if the browser supplied one). */
+app.get('/api/assistant/status', (_req, res) => res.json({ configured: claudeConfigured(), provider: 'Claude' }));
+
+const chatLimits = new Map<string, { count: number; until: number }>();
+let activeChats = 0;
+app.post('/api/assistant/chat', async (req, res) => {
+  if (!needDb(res)) return;
+  if (!claudeConfigured()) { res.status(503).json({ error: 'Muhasib is not configured on the server.' }); return; }
+  const now = Date.now();
+  for (const [key, limit] of chatLimits) if (limit.until <= now) chatLimits.delete(key);
+  const key = req.ip ?? 'shared';
+  const limit = chatLimits.get(key) ?? { count: 0, until: now + 60000 };
+  if (limit.count >= 6 || activeChats >= 2) { res.status(429).json({ error: 'Muhasib is busy. Please wait a moment and try again.' }); return; }
+  limit.count++; chatLimits.set(key, limit); activeChats++;
+  try { res.json(await chat(req.body, await loadWorld())); }
+  catch (e) {
+    console.error('Claude request failed:', e instanceof Error ? e.name : 'unknown');
+    res.status(502).json({ error: 'Muhasib could not process this request. Please retry. No actions were applied.' });
+  } finally { activeChats--; }
+});
+
+app.post('/api/assistant/confirm', async (req, res) => {
+  if (!needDb(res)) return;
+  try {
+    const result = await serial(async () => {
+      const prev = await loadWorld();
+      const proposal = confirmedProposal(req.body?.token, req.body?.personaId, prev);
+      const out = applyAction(prev, proposal.action, { personaId: proposal.personaId, now: new Date().toISOString() });
+      if (out.error) throw new Error(out.error);
+      await saveWorld(prev, out.world);
+      consumeProposal(proposal.token);
+      return { world: out.world, rev: out.world.flags.rev, created: out.created, count: out.count };
+    });
+    res.json(result);
+  } catch (e) { res.status(409).json({ error: (e as Error).message }); }
+});
+
 app.use('/api/cognidocs', async (req, res) => {
   if (!BASE) { res.status(503).json({ error: 'CogniDocs is not configured on the server. Set COGNIDOCS_BASE_URL and COGNIDOCS_API_KEY, or enter a base URL in Settings to call it directly.' }); return; }
   const key = (req.header('x-api-key') as string | undefined) || KEY;

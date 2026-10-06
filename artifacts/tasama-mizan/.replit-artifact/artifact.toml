@@ -1,14 +1,14 @@
 kind = "web"
 previewPath = "/"
 title = "Tasama Mizan"
-description = "Tasama's lead-to-cash, month-end close, bank and budget reconciliation demo. Preserves the supplied application and synthetic world."
+description = "Tasama's own finance demo with a Claude-powered assistant and confirmation-based actions."
 version = "1.0.0"
 id = "artifacts/tasama-mizan"
 router = "path"
 
 [[services]]
 name = "web"
-paths = ["/", "/api/health", "/api/world", "/api/actions", "/api/rev", "/api/reset", "/api/cognidocs"]
+paths = ["/", "/api/health", "/api/world", "/api/actions", "/api/rev", "/api/reset", "/api/cognidocs", "/api/assistant"]
 localPort = 22515
 
 [services.development]

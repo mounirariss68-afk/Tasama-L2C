@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import { buildWorld } from '@mizan/domain/world';
+import { applyAction } from '@mizan/domain/actions';
+import { confirmedProposal, describeProposedAction, validateProposedAction } from '../src/assistant';
+import { needsLanguageCorrection, responseLanguage } from '../src/assistant-language';
+
+assert.equal(responseLanguage('Can we close September?'), 'English');
+assert.equal(responseLanguage('What is unbilled, محاسب?'), 'English');
+assert.equal(responseLanguage('هل يمكننا إغلاق شهر سبتمبر؟'), 'Arabic');
+assert.equal(needsLanguageCorrection('لا يمكننا إغلاق سبتمبر لأن هناك عناصر لم تكتمل بعد.', 'English'), true);
+assert.equal(needsLanguageCorrection('September cannot close until the pending approvals are completed.', 'English'), false);
+assert.equal(needsLanguageCorrection('بلغت قيمة المبالغ غير المفوترة أكثر من مليون ريال سعودي.', 'Arabic'), false);
+
+const world = buildWorld();
+const before = JSON.stringify(world);
+assert.deepEqual(validateProposedAction(world, { type: 'runBillingRun' }, 'noura'), { type: 'runBillingRun' });
+assert.match(describeProposedAction(world, { type: 'runBillingRun' }, 'noura'), /Draft 8 invoices for ALL/);
+assert.equal(JSON.stringify(world), before, 'Preparing an action must not mutate data');
+assert.throws(() => validateProposedAction(world, { type: 'runBillingRun' }, 'omar'), /Only CFO/);
+assert.throws(() => validateProposedAction(world, { type: 'closePeriod' }, 'noura'), /blocked/);
+assert.throws(() => validateProposedAction(world, { type: 'closePeriod' }, 'faisal'), /Only CFO/);
+assert.throws(() => validateProposedAction(world, { type: 'updateSettings' }, 'noura'), /Unsupported/);
+assert.throws(() => validateProposedAction(world, { type: 'releaseInvoice', recordId: 'invented' }, 'noura'), /No currently actionable/);
+assert.throws(() => validateProposedAction(world, { type: 'fixZatca', recordId: 'invented', vatNo: '123' }, 'noura'), /VAT number/);
+assert.throws(() => confirmedProposal('invented', 'noura', world), /expired/);
+const drafted = applyAction(world, { type: 'runBillingRun' }, { personaId: 'noura', now: new Date().toISOString() }).world;
+const invoice = drafted.invoices.find(i => i.status === 'draft')!;
+assert.ok(invoice);
+assert.deepEqual(validateProposedAction(drafted, { type: 'releaseInvoice', recordId: invoice.id }, 'noura'), { type: 'releaseInvoice', id: invoice.id });
+assert.throws(() => validateProposedAction(drafted, { type: 'releaseInvoice', recordId: invoice.id }, 'omar'), /requires/);
+assert.equal(JSON.stringify(world), before, 'Validation never persists or mutates the world');
+console.log('Assistant checks passed: non-mutating proposals, supported actions, role gates, close blockers, exact IDs and VAT validation.');

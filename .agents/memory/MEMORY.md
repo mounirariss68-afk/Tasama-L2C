@@ -1,0 +1,1 @@
+- [Assistant requirements](assistant-requirements.md) — user requires live Claude request processing; the archive's rule-based matcher is not a substitute.

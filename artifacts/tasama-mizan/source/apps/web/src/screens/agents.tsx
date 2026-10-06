@@ -54,7 +54,7 @@ function Team() {
         <Panel icon={<Bot size={16} />} title={`${AGENTS.length} agents and one assistant`}>
           <AgentDirectory>
             {AGENTS.map((x) => <AgentCard key={x.id} agent={{ id: x.id, name: `${x.name} · ${x.arabic}`, role: x.role, purpose: x.purpose, avatar: avatarFor(x), autonomy: x.autonomy, activity: inbox.some((i) => i.agentId === x.id) ? 'waiting' : 'idle' }} onOpen={() => setOpen(x.id)} footer={<span className="text-[11px] text-muted-foreground">{inbox.filter((i) => i.agentId === x.id).length} item(s) waiting on a person</span>} />)}
-            <AgentCard agent={{ id: ASSISTANT.id, name: `${ASSISTANT.name} · ${ASSISTANT.arabic}`, role: ASSISTANT.role, purpose: ASSISTANT.purpose, avatar: avatarFor(ASSISTANT), autonomy: 'observe' }} footer={<span className="text-[11px] text-warn">Deterministic resolver in this build — matching, not comprehension. Labelled "Offline".</span>} />
+            <AgentCard agent={{ id: ASSISTANT.id, name: `${ASSISTANT.name} · ${ASSISTANT.arabic}`, role: ASSISTANT.role, purpose: ASSISTANT.purpose, avatar: avatarFor(ASSISTANT), autonomy: 'assisted' }} footer={<span className="text-[11px] text-muted-foreground">Powered by Claude. Reads current data and prepares actions; a person confirms changes. Specialist workflows and external connectors remain simulated.</span>} />
           </AgentDirectory>
         </Panel>
       </PageSection>

@@ -5,16 +5,14 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AppShell, ChatAssistantTurn, ChatComposer, ChatRail, ChatStatusBadge, ChatSuggestions, ChatUserTurn, ContextNav,
-  LensPicker, MainPanel, RailBrandCard, TitleBar, TitleBarSearch, UserBadge, Wordmark, useAppChrome, useChatRail, BrandLogo,
+  AppShell, ContextNav,
+  LensPicker, MainPanel, TitleBar, TitleBarSearch, UserBadge, Wordmark, useAppChrome, useChatRail,
   type ContextNavItem,
 } from '@cognirise/atelier/layout';
-import { AgentAvatar } from '@cognirise/atelier/archetypes';
 import { Bot, Database, FileScan, Gauge, HardDrive, Inbox as InboxIcon, Landmark, Settings as SettingsIcon, Workflow, X } from 'lucide-react';
 import { AppState, useApp } from './app/state';
 import { PERSONAS, type Section } from '@mizan/domain/personas';
-import { ASSISTANT, agentById, avatarFor } from '@mizan/domain/agents';
-import { answer, type Answer } from './app/assistant';
+import { ClaudeChatRail } from './app/claude-chat';
 import { OverviewScreen } from './screens/overview';
 import { InboxScreen } from './screens/inbox';
 import { L2CScreen } from './screens/l2c';
@@ -31,53 +29,13 @@ const ICON: Record<Section, React.ReactNode> = {
 };
 const LABEL: Record<Section, string> = { overview: 'Overview', inbox: 'Inbox', l2c: 'Lead to cash', documents: 'Documents', close: 'Close', agents: 'Agents', settings: 'Settings' };
 
-type Turn = { from: 'user' | 'agent'; text: string; agent?: string; unknown?: boolean };
-
-function Transcript({ turns }: { turns: Turn[] }) {
-  const { persona, go, nav } = useApp();
-  const host = { id: ASSISTANT.id, name: ASSISTANT.name, role: ASSISTANT.role, avatar: avatarFor(ASSISTANT) };
-  return (
-    <>
-      <div className="mb-3 flex items-center gap-2.5 px-1">
-        <AgentAvatar agent={host} size={34} showActivity={false} />
-        <div className="min-w-0 flex-1"><div className="truncate text-sm text-foreground">{host.name} · {ASSISTANT.arabic}</div><div className="truncate text-[11px] text-muted-foreground">{host.role}</div></div>
-        <ChatStatusBadge state="offline">Offline · matching</ChatStatusBadge>
-      </div>
-      {turns.length === 0 ? (
-        <ChatAssistantTurn avatar={<AgentAvatar agent={host} size={24} showActivity={false} />}>
-          <p>I hold the same numbers the screens do — the schedule, the invoices, the bank lines, the budget — and I route each question to the agent who owns it.</p>
-          <p className="mt-2 text-muted-foreground">You are {persona.name}, {persona.role}. In this build I match rather than comprehend; I will say when I cannot answer.</p>
-        </ChatAssistantTurn>
-      ) : turns.map((t, i) => t.from === 'user' ? <ChatUserTurn key={i}>{t.text}</ChatUserTurn> : (
-        <ChatAssistantTurn key={i} avatar={<AgentAvatar agent={{ ...agentById(t.agent ?? 'muhasib'), avatar: avatarFor(agentById(t.agent ?? 'muhasib')) }} size={24} showActivity={false} />}>
-          <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-accent">{agentById(t.agent ?? 'muhasib').name} · {agentById(t.agent ?? 'muhasib').role}</span>
-          <span className={t.unknown ? 'text-muted-foreground' : ''}>{t.text}</span>
-        </ChatAssistantTurn>
-      ))}
-      {nav.includes('inbox') ? <button type="button" onClick={() => go('inbox')} className="mt-3 w-full rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-start text-[11px] text-muted-foreground hover:bg-card/70">Open the inbox →</button> : null}
-    </>
-  );
-}
-
-const SUGGESTIONS = ['What is unbilled?', 'Can we close September?', 'Which invoices are overdue?', 'Explain the budget variance', 'Is the bank reconciled?', 'How is KSIA?'];
-
 function Shell() {
   const rail = useChatRail();
   const chrome = useAppChrome();
   const { world, persona, setPersona, nav, section, go, clientLens, setClientLens, backend, clearNotice } = useApp();
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
   const [personaOpen, setPersonaOpen] = useState(false);
   useEffect(() => { if (!personaOpen) return; const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPersonaOpen(false); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [personaOpen]);
-
-  const ask = (q: string) => {
-    if (!q.trim()) return;
-    const a: Answer = answer(q, world, persona.id);
-    if (a.goto && nav.includes(a.goto)) { if (a.goto === 'l2c' && a.focus) setClientLens(a.focus); go(a.goto, a.goto === 'l2c' ? undefined : a.focus, a.tab); }
-    setTurns((t) => [...t, { from: 'user', text: q }, { from: 'agent', text: a.text, agent: a.agent, unknown: a.unknown }]);
-    setDraft('');
-  };
 
   const visibleClients = persona.clients.length ? world.clients.filter((c) => persona.clients.includes(c.id)) : world.clients;
   const lenses = useMemo(() => [{ id: 'all', label: visibleClients.length > 1 ? 'All clients' : 'Tasama' }, ...visibleClients.map((c) => ({ id: c.id, label: c.short }))], [visibleClients]);
@@ -96,8 +54,7 @@ function Shell() {
 
   return (
     <AppShell rail={rail} chrome={chrome}
-      chatRail={<ChatRail rail={rail} brand={<RailBrandCard onCollapse={() => rail.setOpen(false)}><BrandLogo on="light" alt="TASAMA Business Services" className="h-7 w-auto" /></RailBrandCard>} collapsedBrand={<img src="/brand/mark.png" alt="" className="h-7 w-7 rounded-md" />}
-        transcript={<Transcript turns={turns} />} suggestions={<ChatSuggestions items={SUGGESTIONS} onSelect={ask} />} composer={<ChatComposer value={draft} onChange={setDraft} onSend={() => ask(draft)} placeholder="Ask about billing, cash, the close…" />} />}
+      chatRail={<ClaudeChatRail rail={rail} />}
       titleBar={<TitleBar brand={<Wordmark>Mizan</Wordmark>}
         search={<div className="relative"><TitleBarSearch placeholder="Search clients, POs, invoices, journals…" value={search} onChange={setSearch} />{hits.length ? <div className="glass-popover absolute start-0 top-full z-50 mt-1 w-[26rem] rounded-xl p-1.5">{hits.map((h, i) => <button key={i} type="button" onClick={() => { setSearch(''); h.run(); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-start hover:bg-card/70"><span className="font-mono text-[11px] text-foreground">{h.label}</span><span className="truncate text-[11px] text-muted-foreground">{h.sub}</span></button>)}</div> : null}</div>}
         lens={<div className="flex items-center gap-2"><LensPicker lenses={lenses} value={clientLens ?? 'all'} onChange={(id) => setClientLens(id === 'all' ? null : id)} />

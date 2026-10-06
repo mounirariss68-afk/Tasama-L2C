@@ -11,6 +11,63 @@ tags:
   - name: health
     description: Health operations
 paths:
+  /assistant/status:
+    get:
+      operationId: getAssistantStatus
+      summary: Check Claude provisioning for Mizan
+      responses:
+        "200":
+          description: Assistant configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantStatus"
+  /assistant/chat:
+    post:
+      operationId: chatWithAssistant
+      summary: Ask Claude to read Mizan data and prepare actions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantConversationInput"
+      responses:
+        "200":
+          description: Claude reply and human-confirmable proposals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantReply"
+        default:
+          description: Request failed without applying actions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantError"
+  /assistant/confirm:
+    post:
+      operationId: confirmAssistantAction
+      summary: Confirm a non-expired proposal against its original world revision and persona
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantConfirmationInput"
+      responses:
+        "200":
+          description: Persisted world after confirmed action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantActionResult"
+        default:
+          description: Confirmation rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantError"
   /healthz:
     get:
       operationId: healthCheck
@@ -33,4 +90,86 @@ components:
           type: string
       required:
         - status
+    AssistantStatus:
+      type: object
+      properties:
+        configured:
+          type: boolean
+        provider:
+          type: string
+      required: [configured, provider]
+    AssistantMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          maxLength: 6000
+      required: [role, content]
+    AssistantConversationInput:
+      type: object
+      properties:
+        messages:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/AssistantMessage"
+        personaId:
+          type: string
+        clientId:
+          type: [string, "null"]
+      required: [messages, personaId]
+    AssistantProposal:
+      type: object
+      properties:
+        token:
+          type: string
+        summary:
+          type: string
+        action:
+          type: object
+          additionalProperties: true
+      required: [token, summary, action]
+    AssistantReply:
+      type: object
+      properties:
+        text:
+          type: string
+        model:
+          type: string
+        proposals:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantProposal"
+      required: [text, model, proposals]
+    AssistantConfirmationInput:
+      type: object
+      properties:
+        token:
+          type: string
+        personaId:
+          type: string
+      required: [token, personaId]
+    AssistantActionResult:
+      type: object
+      properties:
+        world:
+          type: object
+          additionalProperties: true
+        rev:
+          type: integer
+        created:
+          type: string
+        count:
+          type: integer
+      required: [world, rev]
+    AssistantError:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
 

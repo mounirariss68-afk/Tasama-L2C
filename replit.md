@@ -38,6 +38,19 @@ Everything is synthetic, except the client-company names described in the origin
 
 This is a demonstration, not a production finance system: there is no sign-in, every visitor shares one world, personas are a demo authority picker, and Reset the demo replaces the shared demo data.
 
+## Claude Assistant
+
+The running app uses live Claude through Replit AI Integrations, not the original rule-based chat resolver. Access is server-side, with provisioned credentials; usage is billed to Replit credits.
+
+The assistant reads the current PostgreSQL world through bounded tools, computes financial summaries using the existing domain derivations, and prepares supported finance actions. A visible confirmation is required before any change is applied. Proposals expire after 15 minutes, are bound to the requesting persona and world revision, and are revalidated against the current inbox authority and demo limits at confirmation. Another change invalidates an older proposal; request a new review rather than applying stale advice.
+
+Confirmation-card descriptions are derived server-side from a reducer dry run, not trusted model prose. **Why:** a model can describe a bulk action as affecting one record; the approval UI must accurately show its actual scope.
+
+The frontend accepts the returned persisted world immediately; normal revision polling updates other browsers. AI errors are explicit, with no silent rule-based fallback. Specialist workflows, ERP, bank, tax and email integrations remain simulated.
+
+- `pnpm --filter @mizan/server run check:assistant` — validates proposal non-mutation, role gates, close blockers and action inputs.
+- Claude requests are rate-limited with bounded concurrent inference. This does not replace authentication: the inherited persona picker is a demo selector, not an authenticated identity. Restrict access before using real financial records or exposing paid inference widely.
+
 Scope is Tasama's own finance. Finance operations delivered as a service for Tasama's clients are intentionally excluded.
 
 ## Gotchas

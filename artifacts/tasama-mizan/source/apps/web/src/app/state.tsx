@@ -87,6 +87,7 @@ type Ctx = {
   apiKey: string; setApiKey: (k: string) => void;
   nav: Section[];
   dispatch: (action: Action) => Promise<ActionResult>;
+  confirmAssistantAction: (token: string) => Promise<{ created?: string; count?: number }>;
   actions: Actions;
   scenarios: Record<string, ScenarioRun>; runScenario: (id: string) => void; reset: () => void;
 };
@@ -206,6 +207,26 @@ export function AppState({ children }: { children: ReactNode }) {
     const p = queue.current.then(run, run);
     queue.current = p.then(() => undefined, () => undefined);
     return p;
+  }, [setWorld]);
+
+  const confirmAssistantAction = useCallback(async (token: string) => {
+    if (modeRef.current !== 'server') throw new Error('Claude actions require the connected server, not a browser-only world.');
+    const run = async () => {
+      inFlight.current++; setBackend(b => ({ ...b, busy: true }));
+      try {
+        const result = await api<{ world: World; rev: number; created?: string; count?: number }>('/api/assistant/confirm', {
+          method: 'POST', body: JSON.stringify({ token, personaId: personaRef.current }),
+        });
+        setWorld(result.world, result.rev);
+        return { created: result.created, count: result.count };
+      } finally {
+        inFlight.current--;
+        if (!inFlight.current) setBackend(b => ({ ...b, busy: false }));
+      }
+    };
+    const pending = queue.current.then(run, run);
+    queue.current = pending.then(() => undefined, () => undefined);
+    return pending;
   }, [setWorld]);
 
   const actions: Actions = useMemo(() => ({
@@ -332,7 +353,7 @@ export function AppState({ children }: { children: ReactNode }) {
   const value: Ctx = {
     world, backend, clearNotice, persona, setPersona, section, go, focus, setFocus, tab, clientLens, setClientLens,
     settings: world.settings, setSettings, setCogniDocs, apiKey, setApiKey,
-    nav, dispatch, actions, scenarios, runScenario, reset,
+    nav, dispatch, confirmAssistantAction, actions, scenarios, runScenario, reset,
   };
   if (backend.mode === 'connecting') return <Connecting />;
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
