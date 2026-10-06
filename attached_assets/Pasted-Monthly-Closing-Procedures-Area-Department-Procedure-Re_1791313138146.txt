@@ -1,0 +1,177 @@
+Monthly Closing Procedures
+# Area / Department Procedure / Required 
+Action
+Responsible Deadline Automation 
+1 Finance – Closing Coordination Communicate and monitor 
+the monthly closing 
+calendar, cut-off dates, and 
+required submissions. 
+Follow up on outstanding 
+inputs from HR, Requesters, 
+Operations, Technology, and 
+other relevant departments. 
+Finance 25th of each month. No 
+2 Human Resources / Payroll Complete the monthly 
+Payroll Run, including 
+salaries, allowances, 
+deductions, approved 
+adjustments, and final 
+settlements, and provide the 
+final payroll output to 
+Finance. 
+HR / Payroll 3 WD after the payroll has 
+been paid out. 
+Check with Department 
+3 Requesters / Business owner Complete the Certificate of 
+Completion (CoC) in the 
+ERP for all goods/services 
+received or completed 
+during the month. 
+Requesters / Business 
+Owners 
+2 WD after Month-End. Full 
+4 Operations Submit to Finance the 
+monthly schedule of 
+completed works/services 
+and related invoices for the 
+clients. 
+Operations 2 WD after Month-End. Check with Department 
+5 D&T Submit to Finance the 
+monthly schedule of 
+completed works/services 
+and related invoices for the 
+clients. 
+D&T 2 WD after Month-End. Check with Department 
+After the above is completed then the Finance can start the Month closing procedure: 
+6 Finance – Cash Management Complete bank 
+reconciliations and 
+investigate all unmatched or 
+outstanding transactions.
+Finance – Cash 
+Management
+2 WD after completing the 
+processes 1-5.
+Full 
+7 Finance – Cash Management Run Create Accounting for 
+Cash Management and 
+resolve all accounting errors 
+before transferring/posting to 
+GL.
+Finance – Cash 
+Management
+2 WD after completing the 
+processes 1-5.
+Full 
+8 Finance – Accounts Payable Ensure all required invoice 
+approvals are completed 
+and follow up on material 
+pending invoices.
+Finance – Accounts Payable 2 WD after completing the 
+processes 1-5.
+Full 
+9 Finance – Accounts Payable Run Create 
+Accounting/Multiperiod for 
+AP and resolve all 
+accounting errors before 
+transferring/posting to GL.
+Finance – Accounts Payable 2 WD after completing the 
+processes 1-5.
+Full 
+10 Finance – AP / GL Run Accrual for CoC and 
+resolve all accounting errors 
+before transferring/posting to 
+GL. 
+Finance – AP / GL 2 WD after completing the 
+processes 1-5. 
+Full 
+11 Finance – GL Review all the cost & book 
+all material manual accrual 
+entries. 
+Finance – GL 2 WD after completing the 
+processes 1-5. 
+Partial 
+12 Finance – Fixed Assets Transfer eligible asset 
+purchases from AP/Mass 
+Additions and verify 
+completeness of additions.
+Finance – Fixed Assets 2 WD after completing the 
+processes 1-5.
+Full 
+13 Finance – Fixed Assets Capitalize completed 
+CIP/project items where 
+applicable.
+Finance – Fixed Assets 2 WD after completing the 
+processes 1-5.
+Full 
+14 Finance – Fixed Assets Run monthly Depreciation 
+and Amortization and review 
+significant or unusual 
+movements.
+Finance – Fixed Assets 2 WD after completing the 
+processes 1-5.
+Full 
+15 Finance – Leases Run Monthly Interest & 
+outstanding Lease invoices. 
+Finance – Leases 2 WD after completing the 
+processes 1-5. 
+Full 
+16 Finance – Fixed Assets Run Create Accounting for 
+Fixed Assets, resolve errors, 
+and reconcile the FA 
+subledger with GL.
+Finance – Fixed Assets 2 WD after completing the 
+processes 1-5.
+Full 
+17 Finance – Receivables Ensure & book all client 
+invoices & credit notes are 
+recorded in the ERP. 
+Finance – Receivables 2 WD after completing the 
+processes 1-5. 
+Full 
+18 Finance – Receivables Review outstanding 
+receivables & unapplied 
+receipts. 
+Finance – Receivables 2 WD after completing the 
+processes 1-5. 
+Partial 
+19 Finance – Receivables Validate all service delivered 
+to clients & book the 
+revenue where it is 
+recognized. 
+Finance – Receivables 2 WD after completing the 
+processes 1-5. 
+No 
+20 Finance – Receivables Review of both unearned & 
+unbilled revenues balances. 
+Finance – Receivables 2 WD after completing the 
+processes 1-5. 
+Partial 
+21 Finance – Receivables Run Create Accounting for 
+AR and resolve all 
+accounting errors before 
+transferring/posting to GL. 
+Finance – Receivables 2 WD after completing the 
+processes 1-5. 
+Full 
+22 Finance – Reporting Review the monthly P&L and 
+Balance Sheet against prior 
+month, budget, and 
+expectations. Investigate 
+significant or unusual 
+variances and post 
+corrections where required.
+Finance – Reporting 2 WD after completing the 
+processes 1-5.
+No 
+23 Finance – Reporting Complete the final review 
+and approvals, then close 
+the accounting period in the 
+ERP.
+Finance / Reporting 2 WD after completing the 
+processes 1-5.
+Full 
+24 Finance – Reporting Prepare reports & update 
+Dashboard. 
+Finance / Reporting 2 WD after completing the 
+processes 1-5. 
+No
