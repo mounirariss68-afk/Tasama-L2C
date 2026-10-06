@@ -10,10 +10,11 @@ import { arOpen, budgetByMonth, closeSummary, deferredBalance, dso, dsoBySegment
 import { money, monthName, pct, period } from '@mizan/domain/format';
 import { STAGES, stageMetrics } from '@mizan/domain/process';
 import { BarChart, Legend, LineChart, SERIES } from '../lib/viz';
+import { closeOverview } from '@mizan/domain/close';
 
 export function OverviewScreen() {
   const { world, go, persona } = useApp();
-  const close = closeSummary(world);
+  const close = closeOverview(world);
   const wf = waterfall(world);
   const unb = unbilled(world);
   const ar = arOpen(world);
@@ -30,7 +31,7 @@ export function OverviewScreen() {
   const blockedCoc = world.events.filter((e) => e.period === world.closingPeriod || e.id.includes('/D2')).filter((e) => e.coc !== 'signed' && e.coc !== 'not_required' && !e.invoiceId);
   const headline = world.flags.periodClosed
     ? `${period(world.closingPeriod)} is closed.`
-    : `${money(unb, 'SAR', { compact: true })} of delivered work is unbilled; ${blockedCoc.length} invoice${blockedCoc.length === 1 ? ' is' : 's are'} blocked on a certificate of completion; ${close.blocked} close item${close.blocked === 1 ? '' : 's'} blocked.`;
+    : `${money(unb, 'SAR', { compact: true })} of delivered work is unbilled; ${blockedCoc.length} invoice${blockedCoc.length === 1 ? ' is' : 's are'} blocked on a client certificate of completion. ${24 - close.done} of Tasama’s 24 close procedures still need completion or review.`;
 
   const steps = [
     { label: 'Contracted', value: wf.contracted, sub: 'Billing schedule for the month' },
@@ -46,7 +47,7 @@ export function OverviewScreen() {
     <>
       <PageHero
         tone="surface"
-        eyebrow={`Revenue operations · as of ${world.asOf} · close day ${world.closeDay} of 10`}
+        eyebrow={`Revenue operations · as of ${world.asOf} · 24-procedure monthly close`}
         title={<>{period(world.closingPeriod)} close</>}
         lede={headline}
         actions={
@@ -58,10 +59,9 @@ export function OverviewScreen() {
       >
         <div className="mt-3 flex flex-wrap gap-2">
           <Chip tone="highlight">{close.done} done</Chip>
-          <Chip tone="primary">{close.inProgress} in progress</Chip>
-          <Chip tone={close.blocked ? 'danger' : 'muted'}>{close.blocked} blocked</Chip>
-          <Chip tone="muted">{close.notStarted} not started</Chip>
-          <Chip tone="muted">Hard close Day 10 · target Day 5</Chip>
+          <Chip tone="warn">{close.actionNeeded} action needed</Chip>
+          <Chip tone="primary">{close.waiting} waiting for others</Chip>
+          <Chip tone="muted">{close.instance.calendar.confirmed ? 'Working-day calendar confirmed' : 'Calendar needs confirmation'}</Chip>
         </div>
         <div className="mt-5 max-w-md">
           <HeroFeature label="Unbilled revenue" value={money(unb, 'SAR', { compact: true })} support={`${world.events.filter((e) => ['due', 'missed', 'blocked_coc'].includes(eventStatusSafe(world, e))).length} billing events delivered and not invoiced`} />

@@ -7,6 +7,7 @@ import type {
   POLine, World,
 } from './types';
 import { USD_SAR, monthOf } from './world';
+import { closeOverview } from './close-derive';
 
 export const GM_TARGET = 0.23;
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -325,7 +326,7 @@ export function deriveCloseItems(world: World): CloseItem[] {
 export function closeSummary(world: World) {
   const items = deriveCloseItems(world);
   const by = (s: CloseItem['status']) => items.filter((i) => i.status === s).length;
-  return { items, done: by('done'), inProgress: by('in_progress'), blocked: by('blocked'), notStarted: by('not_started'), total: items.length, readyToClose: items.filter((i) => i.id !== 'c17').every((i) => i.status === 'done') };
+  return { items, done: by('done'), inProgress: by('in_progress'), blocked: by('blocked'), notStarted: by('not_started'), total: items.length, readyToClose: closeOverview(world).ready };
 }
 
 /* ------------------------------------------------------------ inbox */

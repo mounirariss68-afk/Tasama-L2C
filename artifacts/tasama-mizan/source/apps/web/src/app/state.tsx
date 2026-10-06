@@ -83,6 +83,7 @@ type Ctx = {
   persona: PersonaDef; setPersona: (id: string) => void;
   section: Section; go: (s: Section, focus?: string, tab?: string) => void; focus: string | null; setFocus: (f: string | null) => void; tab: string | null;
   clientLens: string | null; setClientLens: (id: string | null) => void;
+  closePeriodContext: string; setClosePeriodContext: (period: string) => void;
   settings: Settings; setSettings: (s: Partial<Settings>) => void; setCogniDocs: (c: Partial<Settings['cognidocs']>) => void;
   apiKey: string; setApiKey: (k: string) => void;
   nav: Section[];
@@ -127,6 +128,7 @@ export function AppState({ children }: { children: ReactNode }) {
   const [focus, setFocus] = useState<string | null>(null);
   const [tab, setTab] = useState<string | null>(null);
   const [clientLens, setClientLens] = useState<string | null>(null);
+  const [closePeriodContext, setClosePeriodContext] = useState(world.closingPeriod);
   const [scenarios, setScenarios] = useState<Record<string, ScenarioRun>>({});
   const scenarioToken = useRef(0);
 
@@ -351,7 +353,7 @@ export function AppState({ children }: { children: ReactNode }) {
   }, [nav, setWorld]);
 
   const value: Ctx = {
-    world, backend, clearNotice, persona, setPersona, section, go, focus, setFocus, tab, clientLens, setClientLens,
+    world, backend, clearNotice, persona, setPersona, section, go, focus, setFocus, tab, clientLens, setClientLens, closePeriodContext, setClosePeriodContext,
     settings: world.settings, setSettings, setCogniDocs, apiKey, setApiKey,
     nav, dispatch, confirmAssistantAction, actions, scenarios, runScenario, reset,
   };

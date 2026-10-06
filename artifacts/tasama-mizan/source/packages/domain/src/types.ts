@@ -477,6 +477,8 @@ export type Opportunity = {
 };
 
 export type World = {
+  /** Versioned orchestration workspace; optional for old persisted demo worlds. */
+  closeWorkspace?: import('./close-types').CloseWorkspace;
   asOf: string; // ISO date of the demo
   closingPeriod: string; // YYYY-MM
   closeDay: number; // business day of the close

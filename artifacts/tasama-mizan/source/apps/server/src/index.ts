@@ -157,8 +157,10 @@ app.use('/api/cognidocs', async (req, res) => {
 
 /* ------------------------------------------------------------ static web app */
 if (existsSync(dist)) {
-  app.use(express.static(dist, { index: 'index.html', maxAge: '1h' }));
-  app.get(/.*/, (_req, res) => res.sendFile(resolve(dist, 'index.html')));
+  app.use(express.static(dist, { index: 'index.html', maxAge: '1h', setHeaders: (res, path) => {
+    if (path.endsWith('index.html')) res.setHeader('Cache-Control', 'no-store');
+  } }));
+  app.get(/.*/, (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.sendFile(resolve(dist, 'index.html')); });
 } else {
   app.get(/.*/, (_req, res) => res.status(503).send('Web app not built yet. Run: npm run build'));
 }

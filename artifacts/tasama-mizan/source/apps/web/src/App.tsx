@@ -21,6 +21,7 @@ import { CloseScreen } from './screens/close';
 import { AgentsScreen } from './screens/agents';
 import { SettingsScreen } from './screens/settings';
 import { inboxItems } from '@mizan/domain/derive';
+import { PersonaMenu } from './app/persona-menu';
 
 try { if (!localStorage.getItem('atelier-nav-orientation')) localStorage.setItem('atelier-nav-orientation', 'vertical'); } catch { /* private browsing */ }
 
@@ -30,7 +31,7 @@ const ICON: Record<Section, React.ReactNode> = {
 const LABEL: Record<Section, string> = { overview: 'Overview', inbox: 'Inbox', l2c: 'Lead to cash', documents: 'Documents', close: 'Close', agents: 'Agents', settings: 'Settings' };
 
 function Shell() {
-  const rail = useChatRail();
+  const rail = useChatRail(false);
   const chrome = useAppChrome();
   const { world, persona, setPersona, nav, section, go, clientLens, setClientLens, backend, clearNotice } = useApp();
   const [search, setSearch] = useState('');
@@ -62,7 +63,7 @@ function Shell() {
             {backend.mode === 'server' ? <Database size={10} /> : <HardDrive size={10} />} {backend.mode === 'server' ? 'PostgreSQL' : 'local'}
           </button></div>}
         user={<div className="relative z-[60]"><UserBadge name={persona.name} role={persona.role} initials={persona.initials} onClick={() => setPersonaOpen((o) => !o)} />
-          {personaOpen ? (<><div className="fixed inset-0 -z-10" onClick={() => setPersonaOpen(false)} /><div className="glass-popover absolute end-0 top-full z-50 mt-2 max-h-[70vh] w-[22rem] overflow-y-auto rounded-xl p-2.5"><div className="eyebrow mb-2 px-1">Switch persona</div><div className="space-y-1">{PERSONAS.map((p) => <button key={p.id} type="button" onClick={() => { setPersona(p.id); setPersonaOpen(false); }} className={`flex w-full items-start gap-2.5 rounded-lg border px-2.5 py-2 text-start transition-colors ${p.id === persona.id ? 'border-primary/50 bg-primary/10' : 'border-transparent hover:bg-card/70'}`}><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border/70 bg-card/60 font-mono text-[10px] text-foreground">{p.initials}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs text-foreground">{p.name}</span><span className="block truncate text-[11px] text-muted-foreground">{p.role}</span><span className="mt-0.5 block font-mono text-[10px] text-accent">{p.nav.length} screens · {p.clients.length ? `${p.clients.length} accounts` : 'all accounts'} · {p.limit ? `up to SAR ${p.limit.toLocaleString('en-US')}` : p.id === 'noura' ? 'no limit' : 'no spend'}</span></span></button>)}</div><p className="mt-1 border-t border-border/40 px-1 pt-2 text-[11px] leading-snug text-muted-foreground">Switching changes the inbox, the approvable set, the accounts and the menu. It is not a label.</p></div></>) : null}</div>} />}
+          {personaOpen ? <PersonaMenu currentId={persona.id} onSelect={id => { setPersona(id); setPersonaOpen(false); }} onDismiss={() => setPersonaOpen(false)} /> : null}</div>} />}
       contextNav={<ContextNav items={items} value={section} chrome={chrome} />}>
       <MainPanel>
         {backend.notice ? <div className="mx-4 mt-3 flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"><span className="flex-1">{backend.notice}</span><button type="button" onClick={clearNotice} aria-label="Dismiss"><X size={12} /></button></div> : null}

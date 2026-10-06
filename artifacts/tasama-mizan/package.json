@@ -9,6 +9,7 @@
     "serve": "pnpm --filter @mizan/server run start",
     "typecheck": "pnpm --filter @cognirise/atelier --filter @mizan/domain --filter @mizan/server --filter @mizan/web run typecheck",
     "check:world": "pnpm --filter @mizan/web run check:world",
+    "check:close": "pnpm --filter @mizan/web exec tsx tools/check-close.ts",
     "build:standalone": "pnpm --filter @mizan/web run build:standalone"
   },
   "devDependencies": {

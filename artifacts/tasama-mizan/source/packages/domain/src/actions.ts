@@ -13,8 +13,12 @@ import type {
 import { addDays, vatOf } from './world';
 import { clientOf, eventStatus, poOf, unbilledEvents, toSAR } from './derive';
 import { creditMemoCall, erpRef, invoiceCall, journalCall, receiptCall, vendorInvoiceCall } from './erp';
+import { applyCloseCommand, invalidateCloseReviews } from './close-actions';
+import { getCloseInstance } from './close-derive';
+import type { CloseCommand } from './close-types';
 
 export type Action =
+  | { type: 'closeWorkspace'; command: CloseCommand }
   | { type: 'releaseInvoice'; id: string }
   | { type: 'rejectDraft'; id: string; reason: string }
   | { type: 'draftForEvent'; eventId: string }
@@ -49,6 +53,16 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export function applyAction(prev: World, action: Action, ctx: ActionContext): ActionResult {
   const w = structuredClone(prev) as World;
+  if (action.type === 'closeWorkspace' || action.type === 'closePeriod') {
+    const command = action.type === 'closeWorkspace' ? action.command : { kind: 'close' as const, period: w.closingPeriod, expectedVersion: getCloseInstance(w).version };
+    const error = applyCloseCommand(w, command, ctx);
+    if (error) return { world: prev, error };
+    w.flags.rev++;
+    return { world: w };
+  }
+  if (getCloseInstance(w).status === 'closed' && !['logPersonTrail', 'updateSettings', 'addJob', 'updateJob'].includes(action.type)) {
+    return { world: prev, error: 'The reviewed close snapshot is locked. CFO must reopen the local period before changing supporting financial records.' };
+  }
   const me = { kind: 'person' as const, id: ctx.personaId };
   const ag = (id: string) => ({ kind: 'agent' as const, id });
   const t = (e: Omit<TrailEntry, 'id' | 'at'> & { at?: string }) => { w.trail.push({ id: `TR-${++w.flags.seq}`, at: e.at ?? ctx.now, ...e }); };
@@ -233,12 +247,6 @@ export function applyAction(prev: World, action: Action, ctx: ActionContext): Ac
       t({ actor: me, kind: 'approved', summary: `Close item done — ${c.title}`, recordRef: c.id });
       break;
     }
-    case 'closePeriod': {
-      w.flags.periodClosed = true;
-      const c = w.closeItems.find((x) => x.id === 'c17'); if (c) c.status = 'done';
-      t({ actor: me, kind: 'approved', summary: `${w.closingPeriod} closed` });
-      break;
-    }
     case 'addJob': { w.jobs = [action.job, ...w.jobs.filter((j) => j.id !== action.job.id)]; break; }
     case 'updateJob': { const i = w.jobs.findIndex((j) => j.id === action.job.id); if (i >= 0) w.jobs[i] = { ...w.jobs[i], ...action.job }; else w.jobs.unshift(action.job); break; }
     case 'routeJob': {
@@ -255,6 +263,7 @@ export function applyAction(prev: World, action: Action, ctx: ActionContext): Ac
     case 'logPersonTrail': { t({ actor: me, kind: 'observed', summary: action.summary, detail: action.detail, recordRef: action.recordRef }); break; }
     default: return { world: prev, error: `Unknown action type: ${(action as { type: string }).type}` };
   }
+  invalidateCloseReviews(w, ctx);
   w.flags.rev++;
   return { world: w, created, count };
 }

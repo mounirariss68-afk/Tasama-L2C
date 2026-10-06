@@ -133,13 +133,13 @@ async function insert(client: pg.PoolClient, spec: Spec, row: Record<string, unk
 }
 
 async function writeMeta(client: pg.PoolClient, world: World) {
-  const meta: Record<string, unknown> = { asOf: world.asOf, closingPeriod: world.closingPeriod, closeDay: world.closeDay, flags: world.flags, settings: world.settings };
+  const meta: Record<string, unknown> = { asOf: world.asOf, closingPeriod: world.closingPeriod, closeDay: world.closeDay, flags: world.flags, settings: world.settings, closeWorkspace: world.closeWorkspace ?? null };
   for (const [k, v] of Object.entries(meta)) await client.query(`insert into mizan.world_meta (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value`, [k, JSON.stringify(v)]);
 }
 
 export async function loadWorld(): Promise<World> {
   const meta = Object.fromEntries((await pool.query(`select key, value from mizan.world_meta`)).rows.map((r) => [r.key, r.value]));
-  const out: Record<string, unknown> = { asOf: meta.asOf, closingPeriod: meta.closingPeriod, closeDay: meta.closeDay, flags: meta.flags, settings: meta.settings };
+  const out: Record<string, unknown> = { asOf: meta.asOf, closingPeriod: meta.closingPeriod, closeDay: meta.closeDay, flags: meta.flags, settings: meta.settings, ...(meta.closeWorkspace ? { closeWorkspace: meta.closeWorkspace } : {}) };
   const loaded: Record<string, Record<string, unknown>[]> = {};
   for (const [key, spec] of Object.entries(SPECS)) {
     const r = await pool.query(`select * from mizan.${spec.table} order by position`);
