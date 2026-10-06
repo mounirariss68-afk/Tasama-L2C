@@ -1,0 +1,28 @@
+{
+  "name": "tasama-mizan",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tasama Mizan \u2014 lead-to-cash, month-end close, bank and budget reconciliation platform for TASAMA Business Services, on the Cognirise Atelier design system. Demo prototype on synthetic data.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "start": "npm run start --workspace @mizan/server",
+    "dev": "npm run dev --workspace @mizan/web",
+    "build": "npm run build --workspace @mizan/web",
+    "build:standalone": "npm run build:standalone --workspace @mizan/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "check:world": "npm run check:world --workspace @mizan/web",
+    "tokens": "npm run tokens --workspace @cognirise/atelier",
+    "contrast": "npm run contrast --workspace @cognirise/atelier",
+    "start:local": "DATABASE_URL=${DATABASE_URL:-postgresql://postgres@localhost:5432/mizan} npm start"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "rollup": "4.63.3",
+    "vite": "7.3.6"
+  }
+}

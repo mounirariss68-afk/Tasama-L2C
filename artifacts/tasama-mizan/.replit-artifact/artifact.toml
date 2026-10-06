@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Tasama Mizan"
+description = "A lead-to-cash and month-end close workspace for Tasama Business Services, covering contracts, delivery evidence, billing, collections, reconciliation, close and budget visibility."
+version = "1.0.0"
+id = "artifacts/tasama-mizan"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22515
+
+[services.development]
+run = "pnpm --filter @workspace/tasama-mizan run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/tasama-mizan", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/tasama-mizan/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22515"
+BASE_PATH = "/"

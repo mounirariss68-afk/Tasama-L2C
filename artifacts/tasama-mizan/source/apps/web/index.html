@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en" style="height: 100%">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>Tasama Mizan</title>
+    <meta name="description" content="Tasama Mizan — lead-to-cash, month-end close, bank and budget reconciliation. Demonstration build; all data synthetic." />
+    <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg" />
+    <!-- Pre-paint theme: sets the class before first paint so there is no flash of the wrong theme. Must match ThemeProvider. -->
+    <script>
+      (function () {
+        try {
+          var m = localStorage.getItem("atelier-theme") || "system";
+          var d = m === "dark" || (m === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", d);
+          document.documentElement.style.colorScheme = d ? "dark" : "light";
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body style="height: 100%; margin: 0">
+    <div id="root" style="height: 100%"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

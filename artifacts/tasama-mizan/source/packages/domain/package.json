@@ -1,0 +1,14 @@
+{
+  "name": "@mizan/domain",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Tasama Mizan domain: types, the seeded synthetic world, derivations, the action reducer, the ERP connector dialects, the process model. Pure TypeScript shared by the web app and the server.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

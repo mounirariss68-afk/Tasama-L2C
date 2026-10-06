@@ -1,0 +1,35 @@
+{
+  "name": "@mizan/web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:standalone": "vite build --config vite.config.standalone.ts && node tools/bundle-standalone.mjs",
+    "check:world": "tsx tools/check-world.ts"
+  },
+  "dependencies": {
+    "@cognirise/atelier": "*",
+    "@fontsource/comfortaa": "^5.2.5",
+    "@fontsource/inter": "^5.3.0",
+    "lucide-react": "^0.545.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "recharts": "^2.15.4",
+    "@mizan/domain": "*"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/node": "^25.3.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^7.3.0"
+  }
+}

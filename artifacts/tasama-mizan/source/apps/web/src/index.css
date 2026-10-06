@@ -1,0 +1,20 @@
+/* Cognirise typography, self-hosted. Comfortaa carries the display face and
+ * the wordmark (400/700 only — never a 600). Inter carries body, UI, tables
+ * and figures. Self-hosted rather than CDN: Saudi government and PIF
+ * networks routinely block fonts.gstatic. */
+@import "@fontsource/comfortaa/latin-400.css";
+@import "@fontsource/comfortaa/latin-700.css";
+@import "@fontsource/comfortaa/latin-ext-400.css";
+@import "@fontsource/comfortaa/latin-ext-700.css";
+@import "@fontsource/inter/latin-400.css";
+@import "@fontsource/inter/latin-600.css";
+@import "@fontsource/inter/latin-800.css";
+@import "@fontsource/inter/latin-ext-400.css";
+@import "@fontsource/inter/latin-ext-600.css";
+
+/* The design system's theme: Tailwind, plugins, tokens and the brand layer. */
+@import "@cognirise/atelier/styles.css";
+
+/* Posting previews and raw bank descriptions are long; let them wrap inside
+   the reader rather than pushing the column. */
+pre { white-space: pre-wrap; word-break: break-word; }
