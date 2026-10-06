@@ -36,6 +36,8 @@ minimumReleaseAgeExclude:
 
 packages:
   - artifacts/*
+  - artifacts/tasama-mizan/source/apps/*
+  - artifacts/tasama-mizan/source/packages/*
   - lib/*
   - lib/integrations/*
   - scripts
@@ -75,6 +77,9 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # Preserve the supplied Mizan build pins: Rollup 4.64.0 hangs tree-shaking.
+  rollup: 4.63.3
+  vite: 7.3.6
   # replit uses linux-x64 only, we can exclude all other platforms
   "esbuild>@esbuild/darwin-arm64": "-"
   "esbuild>@esbuild/darwin-x64": "-"

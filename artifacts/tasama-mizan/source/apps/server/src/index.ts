@@ -34,7 +34,9 @@ let dbState: { ok: true } | { ok: false; reason: string } = { ok: false, reason:
 async function startDatabase() {
   if (!process.env.DATABASE_URL) { dbState = { ok: false, reason: 'DATABASE_URL is not set. In Replit, open the Database tool and create a PostgreSQL database; the variable is set for you.' }; return; }
   try {
-    await ensureSchema();
+    // Development creates the imported schema. Publish applies schema changes
+    // to the managed production database; never run DDL at production startup.
+    if (process.env.NODE_ENV !== 'production') await ensureSchema();
     if (!(await isSeeded())) { const w = await reseed(); console.log(`Seeded the synthetic world: ${w.clients.length} clients, ${w.invoices.length} invoices, ${w.bankLines.length} bank lines`); }
     dbState = { ok: true };
   } catch (e) {

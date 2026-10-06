@@ -1,45 +1,47 @@
-# [Project name]
+# Tasama Mizan
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Imported from the user's ZIP, following its README: a synthetic-data demonstration of Tasama's own lead-to-cash, close, bank reconciliation and budget processes.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Managed workflow: `artifacts/tasama-mizan: web` — builds the supplied React app, then starts its Express server.
+- `pnpm --filter @workspace/tasama-mizan run typecheck` — checks the imported design system, domain, server and web app.
+- `pnpm --filter @workspace/tasama-mizan run check:world` — supplied arithmetic and reducer checks.
+- `pnpm --filter @workspace/tasama-mizan run build` — build the web app.
+- `pnpm --filter @workspace/tasama-mizan run build:standalone` — regenerate the standalone HTML.
+- `DATABASE_URL` is supplied by the project's managed PostgreSQL database.
+- CogniDocs defaults to simulated mode. Live mode is optional and requires a configured service; do not request or expose credentials outside the secrets flow.
 
-## Stack
+## Canonical Source
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+The imported app is in `artifacts/tasama-mizan/source/`. Its `README.md` contains the original setup instructions and product boundaries; `design/DESIGN.md` contains the detailed design.
 
-## Where things live
+- `source/apps/web/` — the actual React frontend and seven screens.
+- `source/apps/server/` — the actual Express server, PostgreSQL store and SQL schema.
+- `source/packages/domain/` — shared world, reducer, derivations, workflow model and simulated connectors.
+- `source/packages/design-system/` — supplied Tasama-branded Atelier components and tokens.
+- `source/Tasama-Mizan.html` and `source/samples/` — original standalone build and PDFs.
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+The top-level artifact's original Vite scaffold is not the app entry. Use the imported source above.
 
-## Architecture decisions
+## Decisions and Boundaries
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Preserve the supplied interface and domain model rather than reimplementing them. **Why:** the user asked to follow the archive's README, not redesign the product.
+- Preserve the original one-process Express architecture. **Why:** its server owns the shared world and serves the built frontend; separating it would unnecessarily change its persistence contract.
+- Imported packages are linked through the existing pnpm workspace; the source's npm commands have corresponding artifact wrapper scripts.
+- Mizan's API paths are routed specifically to its service so the template `/api` server cannot intercept them. The template health endpoint remains at `/api/healthz`.
+- Development may create the imported schema. Production startup does not perform DDL; managed production schema changes belong to Publish.
 
-## Product
+## Product Safety
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Everything is synthetic, except the client-company names described in the original README. External ERP, CRM, CLM, tax and bank connectors remain simulated.
 
-## User preferences
+This is a demonstration, not a production finance system: there is no sign-in, every visitor shares one world, personas are a demo authority picker, and Reset the demo replaces the shared demo data.
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+Scope is Tasama's own finance. Finance operations delivered as a service for Tasama's clients are intentionally excluded.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Keep the supplied `rollup@4.63.3` and `vite@7.3.6` pins unless a replacement build is tested; the original README documents a Rollup 4.64.0 tree-shaking hang.
+- The app is mounted at `/`; original brand, sample and API URLs depend on that.
+- Do not reset an existing world merely to troubleshoot an import or startup.

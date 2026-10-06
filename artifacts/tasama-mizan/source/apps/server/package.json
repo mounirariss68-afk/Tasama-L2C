@@ -11,7 +11,7 @@
   "dependencies": {
     "express": "^5.1.0",
     "tsx": "^4.19.2",
-    "@mizan/domain": "*",
+    "@mizan/domain": "workspace:*",
     "pg": "^8.13.1"
   },
   "devDependencies": {

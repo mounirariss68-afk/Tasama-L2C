@@ -1,27 +1,36 @@
 kind = "web"
 previewPath = "/"
 title = "Tasama Mizan"
-description = "A lead-to-cash and month-end close workspace for Tasama Business Services, covering contracts, delivery evidence, billing, collections, reconciliation, close and budget visibility."
+description = "Tasama's lead-to-cash, month-end close, bank and budget reconciliation demo. Preserves the supplied application and synthetic world."
 version = "1.0.0"
 id = "artifacts/tasama-mizan"
 router = "path"
 
 [[services]]
 name = "web"
-paths = [ "/" ]
+paths = ["/", "/api/health", "/api/world", "/api/actions", "/api/rev", "/api/reset", "/api/cognidocs"]
 localPort = 22515
 
 [services.development]
 run = "pnpm --filter @workspace/tasama-mizan run dev"
 
-[services.production]
-build = [ "pnpm", "--filter", "@workspace/tasama-mizan", "run", "build" ]
-serve = "static"
-publicDir = "artifacts/tasama-mizan/dist/public"
+[services.production.build]
+args = ["pnpm", "--filter", "@workspace/tasama-mizan", "run", "build"]
 
-[[services.production.rewrites]]
-from = "/*"
-to = "/index.html"
+[services.production.build.env]
+NODE_ENV = "production"
+BASE_PATH = "/"
+
+[services.production.run]
+args = ["pnpm", "--filter", "@workspace/tasama-mizan", "run", "serve"]
+
+[services.production.run.env]
+NODE_ENV = "production"
+PORT = "22515"
+BASE_PATH = "/"
+
+[services.production.health.startup]
+path = "/api/health"
 
 [services.env]
 PORT = "22515"
