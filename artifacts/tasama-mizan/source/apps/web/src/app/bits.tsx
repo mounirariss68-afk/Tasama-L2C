@@ -77,12 +77,28 @@ export function Trail({ entries, limit }: { entries: TrailEntry[]; limit?: numbe
   return (
     <DecisionTrail>
       {rows.map((e) => (
-        <TrailRow key={e.id} kind={e.kind} at={dateTime(e.at)} summary={e.summary} detail={e.detail ? <pre className="whitespace-pre-wrap font-mono text-[10.5px] leading-snug text-muted-foreground">{e.detail}</pre> : undefined}
+        <TrailRow key={e.id} kind={e.kind} at={dateTime(e.at)} summary={e.summary} detail={e.detail ? <TrailDetail text={e.detail} /> : undefined}
           actor={e.actor.kind === 'agent' ? <AgentMark id={e.actor.id} /> : <PersonMark id={e.actor.id} />}
           autonomy={e.autonomy ? <AgentAutonomyChip level={e.autonomy} /> : undefined}
           override={e.override} />
       ))}
     </DecisionTrail>
+  );
+}
+
+/** A trail entry's detail: a sentence shows inline; an ERP call (method, path, JSON body) stays folded behind one click so the trail reads as decisions, not payloads. */
+function TrailDetail({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const isCall = /^(POST|GET|PUT|PATCH|DELETE)\s|^\{|\n\{/.test(text);
+  if (!isCall) return <p className="text-xs leading-snug text-muted-foreground">{text}</p>;
+  const head = text.split('\n')[0];
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground hover:text-foreground">
+        <span className="rounded border border-border/60 px-1 py-px">{open ? 'hide' : 'show'} the ERP call</span><span className="truncate">{head}</span>
+      </button>
+      {open ? <pre className="mt-1.5 whitespace-pre-wrap font-mono text-[10.5px] leading-snug text-muted-foreground">{text}</pre> : null}
+    </div>
   );
 }
 
