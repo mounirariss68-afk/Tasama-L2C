@@ -14,7 +14,7 @@
 import type {
   BankAccount, BankLine, BillingEvent, BudgetRow, Client, ClientPO, CloseItem, Contract, DunningItem,
   Evidence, Finding, Invoice, Journal, LedgerEntry, CashReceipt, Opportunity, POLine, Settings, TrailEntry, VarianceDriver,
-  VendorInvoice, VendorPO, World, BusinessLine, Currency,
+  VendorInvoice, VendorPO, World, BusinessLine, Currency, DepartmentInput, ErpJob, PayrollRun, VatReturn,
 } from './types';
 
 export const SEED = 20261006;
@@ -403,9 +403,9 @@ function buildCash(invoices: Invoice[]): CashBuild {
     bankLines.push(b); return b;
   };
   // Payroll, GOSI, VAT, vendor payments, fees — matched to ledger (13).
-  push({ accountId: 'snb-ops', date: sep(25), description: 'Payroll — September', rawDescription: 'WPS SALARY FILE 092026 MUDAD', amount: -1_486_300, direction: 'debit', type: 'payroll' }, { accountId: 'snb-ops', date: sep(25), kind: 'payroll', description: 'Payroll September 2026 (WPS)', amount: -1_486_300 });
-  push({ accountId: 'snb-ops', date: sep(14), description: 'GOSI contributions — August', rawDescription: 'GOSI SADAD 082026', amount: -312_420, direction: 'debit', type: 'tax' }, { accountId: 'snb-ops', date: sep(14), kind: 'tax', description: 'GOSI August 2026', amount: -312_420 });
-  push({ accountId: 'snb-ops', date: sep(28), description: 'ZATCA — VAT return August', rawDescription: 'SADAD ZATCA VAT 082026', amount: -644_910, direction: 'debit', type: 'tax' }, { accountId: 'snb-ops', date: sep(28), kind: 'tax', description: 'VAT payable August 2026', amount: -644_910 });
+  push({ accountId: 'snb-ops', date: sep(25), description: 'Payroll — September', rawDescription: 'WPS SALARY FILE 092026 MUDAD', amount: -804_300, direction: 'debit', type: 'payroll' }, { accountId: 'snb-ops', date: sep(25), kind: 'payroll', description: 'Payroll September 2026 (WPS)', amount: -804_300 });
+  push({ accountId: 'snb-ops', date: sep(14), description: 'GOSI contributions — August', rawDescription: 'GOSI SADAD 082026', amount: -133_800, direction: 'debit', type: 'tax' }, { accountId: 'snb-ops', date: sep(14), kind: 'tax', description: 'GOSI August 2026', amount: -133_800 });
+  push({ accountId: 'snb-ops', date: sep(28), description: 'ZATCA — VAT return August', rawDescription: 'SADAD ZATCA VAT 082026', amount: -99_916.54, direction: 'debit', type: 'tax' }, { accountId: 'snb-ops', date: sep(28), kind: 'tax', description: 'VAT payable August 2026', amount: -99_916.54 });
   push({ accountId: 'snb-ops', date: sep(9), description: 'Accenture Saudi Arabia — ACN-SA-26-0412', rawDescription: 'OUTWARD TRF ACCENTURE SAUDI ARABIA ACN-SA-26-0412', amount: -402_500, direction: 'debit', type: 'payment', reference: 'ACN-SA-26-0412' }, { accountId: 'snb-ops', date: sep(9), kind: 'payment', description: 'Vendor payment Accenture ACN-SA-26-0412', amount: -402_500, reference: 'ACN-SA-26-0412' });
   push({ accountId: 'snb-ops', date: sep(16), description: 'Transfer from collections account', rawDescription: 'INTERNAL TRF FROM 6080 1016 7519', amount: 600_000, direction: 'credit', type: 'transfer' }, { accountId: 'snb-ops', date: sep(16), kind: 'transfer', description: 'Sweep from Al Rajhi collections', amount: 600_000 });
   // Bank fee with no ledger entry → proposed journal.
@@ -546,18 +546,16 @@ const BUDGET = buildBudget(EVENTS);
  * in their order and numbering. Departmental inputs (1–5) come first; Finance
  * starts the close when they are in (6–24, each "2 WD after completing 1–5").
  * Status is derived from the world where Mizan covers the procedure; ERP jobs
- * Mizan only reads back are labelled as such; Fixed Assets and Leases sit
- * outside Mizan and are shown, not pretended.
+ * Mizan only reads back (Fixed Assets, Leases) are labelled as such and carry
+ * the job result. Line 25, the VAT return, was added by Cognirise.
  */
 const P = (number: number, group: CloseItem['group'], workstream: string, title: string, owner: string, agentId: string | null, deadline: string, dueDay: number,
   tasamaAutomation: CloseItem['tasamaAutomation'], coverage: CloseItem['coverage'], status: CloseItem['status'], extra: Partial<CloseItem> = {}): CloseItem =>
   ({ id: `P${String(number).padStart(2, '0')}`, number, group, workstream, title, owner, agentId, deadline, dueDay, tasamaAutomation, coverage, status, ...extra });
 
 export const CLOSE_ITEMS: CloseItem[] = [
-  P(1, 'inputs', 'Finance – Closing Coordination', 'Communicate and monitor the closing calendar, cut-off dates and required submissions; follow up outstanding inputs from HR, Requesters, Operations and D&T', 'omar', 'iqfal', '25th of each month', 0, 'No', 'derived', 'done',
-    { evidence: 'Calendar and cut-offs issued 25 Sep to HR, Requesters, Operations and D&T; Iqfal follows up the inputs below and reports what is still outstanding.' }),
-  P(2, 'inputs', 'Human Resources / Payroll', 'Complete the monthly payroll run (salaries, allowances, deductions, adjustments, final settlements) and provide the final payroll output to Finance', 'hr', null, '3 WD after the payroll has been paid out', 2, 'Check with Department', 'input', 'done',
-    { evidence: 'Payroll paid 25 Sep; final payroll output received from HR on 30 Sep (aggregate totals only — no employee data enters Mizan).' }),
+  P(1, 'inputs', 'Finance – Closing Coordination', 'Communicate and monitor the closing calendar, cut-off dates and required submissions; follow up outstanding inputs from HR, Requesters, Operations and D&T', 'omar', 'iqfal', '25th of each month', 0, 'No', 'derived', 'in_progress', { derivedFrom: 'inputs' }),
+  P(2, 'inputs', 'Human Resources / Payroll', 'Complete the monthly payroll run (salaries, allowances, deductions, adjustments, final settlements) and provide the final payroll output to Finance', 'hr', 'rawatib', '3 WD after the payroll has been paid out', 2, 'Check with Department', 'derived', 'blocked', { derivedFrom: 'payroll' }),
   P(3, 'inputs', 'Requesters / Business Owners', 'Complete the Certificate of Completion in the ERP for all goods and services received or completed during the month', 'requesters', 'mawrid', '2 WD after month-end', 2, 'Full', 'derived', 'in_progress', { derivedFrom: 'vendor_coc' }),
   P(4, 'inputs', 'Operations', 'Submit the monthly schedule of completed works and services and the related client invoices', 'operations', 'shahid', '2 WD after month-end', 2, 'Check with Department', 'derived', 'in_progress', { derivedFrom: 'delivery_ops' }),
   P(5, 'inputs', 'D&T', 'Submit the monthly schedule of completed works and services and the related client invoices', 'dt', 'shahid', '2 WD after month-end', 2, 'Check with Department', 'derived', 'in_progress', { derivedFrom: 'delivery_dt' }),
@@ -567,11 +565,11 @@ export const CLOSE_ITEMS: CloseItem[] = [
   P(9, 'finance', 'Finance – Accounts Payable', 'Run Create Accounting / Multiperiod for AP and resolve accounting errors before posting to GL', 'omar', 'mawrid', '2 WD after completing 1–5', 4, 'Full', 'erp-job', 'not_started', { derivedFrom: 'erp_ap' }),
   P(10, 'finance', 'Finance – AP / GL', 'Run the accrual for CoCs and resolve accounting errors before posting to GL', 'reem', 'mawrid', '2 WD after completing 1–5', 4, 'Full', 'derived', 'not_started', { derivedFrom: 'journal_vendor' }),
   P(11, 'finance', 'Finance – GL', 'Review all costs and book all material manual accrual entries', 'reem', 'iqfal', '2 WD after completing 1–5', 4, 'Partial', 'derived', 'not_started', { derivedFrom: 'journal_manual' }),
-  P(12, 'finance', 'Finance – Fixed Assets', 'Transfer eligible asset purchases from AP / Mass Additions and verify completeness of additions', 'omar', null, '2 WD after completing 1–5', 4, 'Full', 'outside', 'external'),
-  P(13, 'finance', 'Finance – Fixed Assets', 'Capitalise completed CIP / project items where applicable', 'omar', null, '2 WD after completing 1–5', 4, 'Full', 'outside', 'external'),
-  P(14, 'finance', 'Finance – Fixed Assets', 'Run monthly depreciation and amortisation and review significant or unusual movements', 'omar', null, '2 WD after completing 1–5', 4, 'Full', 'outside', 'external'),
-  P(15, 'finance', 'Finance – Leases', 'Run monthly lease interest and outstanding lease invoices', 'omar', null, '2 WD after completing 1–5', 4, 'Full', 'outside', 'external'),
-  P(16, 'finance', 'Finance – Fixed Assets', 'Run Create Accounting for Fixed Assets, resolve errors and reconcile the FA sub-ledger with GL', 'omar', null, '2 WD after completing 1–5', 4, 'Full', 'outside', 'external'),
+  P(12, 'finance', 'Finance – Fixed Assets', 'Transfer eligible asset purchases from AP / Mass Additions and verify completeness of additions', 'omar', 'iqfal', '2 WD after completing 1–5', 4, 'Full', 'erp-job', 'not_started', { derivedFrom: 'erp_job' }),
+  P(13, 'finance', 'Finance – Fixed Assets', 'Capitalise completed CIP / project items where applicable', 'omar', 'iqfal', '2 WD after completing 1–5', 4, 'Full', 'erp-job', 'not_started', { derivedFrom: 'erp_job' }),
+  P(14, 'finance', 'Finance – Fixed Assets', 'Run monthly depreciation and amortisation and review significant or unusual movements', 'omar', 'iqfal', '2 WD after completing 1–5', 4, 'Full', 'erp-job', 'not_started', { derivedFrom: 'erp_job' }),
+  P(15, 'finance', 'Finance – Leases', 'Run monthly lease interest and outstanding lease invoices', 'omar', 'iqfal', '2 WD after completing 1–5', 4, 'Full', 'erp-job', 'not_started', { derivedFrom: 'erp_job' }),
+  P(16, 'finance', 'Finance – Fixed Assets', 'Run Create Accounting for Fixed Assets, resolve errors and reconcile the FA sub-ledger with GL', 'omar', 'iqfal', '2 WD after completing 1–5', 4, 'Full', 'erp-job', 'not_started', { derivedFrom: 'erp_job' }),
   P(17, 'finance', 'Finance – Receivables', 'Ensure all client invoices and credit notes are recorded in the ERP', 'faisal', 'fatoora', '2 WD after completing 1–5', 4, 'Full', 'derived', 'in_progress', { derivedFrom: 'billing' }),
   P(18, 'finance', 'Finance – Receivables', 'Review outstanding receivables and unapplied receipts', 'faisal', 'tahseel', '2 WD after completing 1–5', 4, 'Partial', 'derived', 'in_progress', { derivedFrom: 'ar_tie' }),
   P(19, 'finance', 'Finance – Receivables', 'Validate all services delivered to clients and book the revenue where it is recognised', 'reem', 'iqfal', '2 WD after completing 1–5', 4, 'No', 'derived', 'not_started', { derivedFrom: 'journal_unbilled' }),
@@ -580,6 +578,8 @@ export const CLOSE_ITEMS: CloseItem[] = [
   P(22, 'finance', 'Finance – Reporting', 'Review the monthly P&L and balance sheet against prior month, budget and expectations; investigate variances and post corrections', 'noura', 'mizaniya', '2 WD after completing 1–5', 4, 'No', 'derived', 'in_progress', { derivedFrom: 'budget' }),
   P(23, 'finance', 'Finance – Reporting', 'Complete the final review and approvals, then close the accounting period in the ERP', 'noura', 'iqfal', '2 WD after completing 1–5', 4, 'Full', 'derived', 'not_started', { derivedFrom: 'period_close' }),
   P(24, 'finance', 'Finance – Reporting', 'Prepare the monthly reports and update the dashboard', 'reem', 'iqfal', '2 WD after completing 1–5', 4, 'No', 'derived', 'not_started', { derivedFrom: 'reports' }),
+  // Added by Cognirise — not in Tasama's list. A KSA VAT-registered business files monthly once taxable supplies exceed SAR 40M a year; the return is due by the last day of the following month.
+  P(25, 'added', 'Finance – Tax (added by Cognirise)', 'Prepare the monthly VAT return from the cleared tax invoices and the posted vendor invoices; file on the ZATCA portal and pay by the end of the following month', 'reem', 'iqfal', 'Last day of the following month (ZATCA)', 10, 'Not in list', 'derived', 'not_started', { derivedFrom: 'vat' }),
 ];
 
 export const JOURNALS: Journal[] = [
@@ -589,6 +589,79 @@ export const JOURNALS: Journal[] = [
   { id: 'DEMO-JE-2609-04', kind: 'Bank charges', period: '2026-09', proposedBy: 'tasweya', status: 'proposed', description: 'SNB service charges September (SAR 345) and correspondent charge on the KSIA receipt (SAR 37.50) — on the statement, not in the ledger.', lines: [{ account: '6300 Bank charges', dr: 382.5, cr: 0 }, { account: '1010 Bank — SNB operating', dr: 0, cr: 345 }, { account: '1020 Bank — Al Rajhi collections', dr: 0, cr: 37.5 }] },
   { id: 'DEMO-JE-2609-05', kind: 'FX difference', period: '2026-09', proposedBy: 'tasweya', status: 'proposed', description: 'Nordwind July receipt USD 10,925 booked at 3.75, converted by SAB at 3.7512.', lines: [{ account: '1030 Bank — SAB USD', dr: 13.11, cr: 0 }, { account: '7100 FX gains', dr: 0, cr: 13.11 }] },
   { id: 'DEMO-JE-2609-06', kind: 'Rate correction (debit note)', period: '2026-09', proposedBy: 'hares', status: 'proposed', description: 'Salwan September specialist days invoiced at SAR 4,100 against contract rate SAR 4,312 (56 days): debit note for SAR 11,872 + VAT.', lines: [{ account: '1200 Trade receivables', dr: 13_652.8, cr: 0 }, { account: '4100 Service revenue', dr: 0, cr: 11_872 }, { account: '2300 VAT output', dr: 0, cr: 1_780.8 }] },
+];
+
+/* ------------------------------------------------------------ payroll */
+
+/**
+ * Payroll as Finance receives it. HR runs payroll in the HR payroll system and
+ * pays through WPS; Tasama's procedure 2 says the final output reaches Finance
+ * three working days after pay-out. Mizan holds totals by cost centre and the
+ * allocation to engagements from timesheets — never an employee record.
+ * September's register is late on Day 4: paid 25 Sep, due 30 Sep, not received.
+ */
+const PA = (costCentre: string, businessLine: BusinessLine | 'G&A', clientId: string | null, fte: number, cost: number, note?: string): PayrollRun['allocations'][number] => ({ costCentre, businessLine, clientId, fte, cost, ...(note ? { note } : {}) });
+
+export const PAYROLL_RUNS: PayrollRun[] = [
+  {
+    id: 'PR-2026-08', period: '2026-08', source: 'HR payroll system (Oracle HCM Cloud Payroll)', paidOn: '2026-08-25', dueOn: '2026-08-30', receivedOn: '2026-08-27', wpsBatchRef: 'WPS SALARY FILE 082026 MUDAD',
+    headcount: 111, joiners: 1, leavers: 1,
+    basic: 622_900, allowances: 218_000, overtime: 8_000, grossPay: 848_900,
+    gosiEmployee: 45_100, gosiEmployer: 88_700, otherDeductions: 5_900, finalSettlements: 11_800, netPay: 797_900,
+    eosbProvision: 35_000, leaveProvision: 70_700, bonusAccrual: 51_600, employerCost: 1_094_900, gosiDueOn: '2026-09-15',
+    allocations: [
+      PA('CC-504', '504', 'ksia', 17, 188_000), PA('CC-504', '504', 'salwan', 11, 138_000), PA('CC-504', '504', 'gplc', 3, 35_000), PA('CC-504', '504', 'jada', 4, 43_000), PA('CC-504', '504', 'redc', 7, 76_000),
+      PA('CC-506', '506', 'sdb', 11, 111_000), PA('CC-502', '502', 'ksia', 6, 47_500),
+      PA('CC-SES', 'SES-FIN', 'gplc', 9, 60_500), PA('CC-SES', 'SES-FIN', 'nordwind', 4, 36_500), PA('CC-BES', 'BES', 'rlc', 5, 33_800), PA('CC-EVAS', 'EVAS', 'faic', 13, 121_000),
+      PA('CC-GA', 'G&A', null, 21, 204_600, 'Finance, HR, Legal, Admin, Management — overhead, not allocated to engagements'),
+    ],
+    status: 'posted', proof: { bankLineId: null, bankTies: true, headcountTies: true, glTies: true, note: 'Register SAR 797,900 = WPS batch 25 Aug = GL 2110; 111 heads = 111 in July + 1 joiner − 1 leaver.' }, journalIds: [],
+  },
+  {
+    id: 'PR-2026-09', period: '2026-09', source: 'HR payroll system (Oracle HCM Cloud Payroll)', paidOn: '2026-09-25', dueOn: '2026-09-30', wpsBatchRef: 'WPS SALARY FILE 092026 MUDAD',
+    headcount: 112, joiners: 3, leavers: 2,
+    basic: 627_600, allowances: 219_700, overtime: 8_700, grossPay: 856_000,
+    gosiEmployee: 45_500, gosiEmployer: 89_400, otherDeductions: 6_200, finalSettlements: 23_400, netPay: 804_300,
+    eosbProvision: 35_300, leaveProvision: 71_300, bonusAccrual: 52_000, employerCost: 1_104_000, gosiDueOn: '2026-10-15',
+    allocations: [
+      PA('CC-504', '504', 'ksia', 17, 190_000, 'PMIS Phase D2 team — the UAT milestone month'), PA('CC-504', '504', 'salwan', 11, 140_000), PA('CC-504', '504', 'gplc', 3, 36_000), PA('CC-504', '504', 'jada', 4, 44_000),
+      PA('CC-504', '504', 'redc', 7, 76_000, '18 EPMO days delivered on the expired PO — cost without revenue until the extension is recorded'),
+      PA('CC-506', '506', 'sdb', 11, 112_000, 'MS3 build — milestone revenue falls in December'), PA('CC-502', '502', 'ksia', 6, 48_000),
+      PA('CC-SES', 'SES-FIN', 'gplc', 9, 61_000), PA('CC-SES', 'SES-FIN', 'nordwind', 4, 37_000, 'RHQ Finance MS — staffed at 4 against a fee that covers 3'), PA('CC-BES', 'BES', 'rlc', 5, 34_000), PA('CC-EVAS', 'EVAS', 'faic', 13, 122_000),
+      PA('CC-GA', 'G&A', null, 22, 204_000, 'Finance, HR, Legal, Admin, Management — overhead, not allocated to engagements'),
+    ],
+    status: 'awaited', journalIds: [],
+  },
+];
+
+/* ---------------------------------------------------------------- VAT */
+
+/** KSA VAT at 15%, filed monthly on the ZATCA portal. August is filed and paid (28 Sep, on the SNB statement); September opens with the close. */
+export const VAT_RETURNS: VatReturn[] = [
+  { id: 'VAT-2026-08', period: '2026-08', filingDueOn: '2026-09-30', status: 'filed', preparedOn: '2026-09-08', approvedOn: '2026-09-10', filedOn: '2026-09-28',
+    figures: { standardRatedSales: 846_110.25, outputVat: 126_916.54, salesCount: 13, zeroRatedSales: 0, standardRatedPurchases: 180_000, inputVat: 27_000, purchaseCount: 1, deferredInputVat: 0, deferredNote: '', adjustments: 0, adjustmentNote: '', netPayable: 99_916.54, excluded: [], salesRefs: [], purchaseRefs: ['DEMO-VI-0171'] } },
+  { id: 'VAT-2026-09', period: '2026-09', filingDueOn: '2026-10-31', status: 'open' },
+];
+
+/* ----------------------------------------------------------- ERP jobs */
+
+/** The accounting jobs the ERP runs for Fixed Assets and Leases. Mizan reads their status back; it never runs them. */
+export const ERP_JOBS: ErpJob[] = [
+  { id: 'EJ-FA-ADD-2609', procedure: 12, module: 'Fixed Assets', name: 'Mass Additions — transfer from Payables', period: '2026-09', status: 'completed', ranAt: '2026-10-02T09:12:00+03:00', summary: '3 additions posted from AP (laptops ×24, two licences capitalised) — SAR 184,500; no untransferred invoice lines', errors: 0 },
+  { id: 'EJ-FA-CIP-2609', procedure: 13, module: 'Fixed Assets', name: 'Capitalise CIP / project items', period: '2026-09', status: 'completed', ranAt: '2026-10-02T09:20:00+03:00', summary: 'No CIP items open in September', errors: 0 },
+  { id: 'EJ-FA-DEP-2609', procedure: 14, module: 'Fixed Assets', name: 'Depreciation and amortisation', period: '2026-09', status: 'scheduled', scheduledFor: '2026-10-07', summary: 'Scheduled for Day 5, after additions and CIP', errors: 0 },
+  { id: 'EJ-LEASE-2609', procedure: 15, module: 'Leases', name: 'Lease interest and lease invoices (IFRS 16)', period: '2026-09', status: 'completed', ranAt: '2026-10-03T08:40:00+03:00', summary: '2 leases (Riyadh HQ, Jeddah office): interest SAR 18,420; 2 lease invoices matched', errors: 0 },
+  { id: 'EJ-FA-CA-2609', procedure: 16, module: 'Fixed Assets', name: 'Create Accounting — Fixed Assets', period: '2026-09', status: 'not_run', summary: 'Runs after depreciation', errors: 0 },
+];
+
+/* ------------------------------------------------- department inputs */
+
+/** What the departments owe the close (procedures 2–5) and where it stands on Day 4. Iqfal issued the calendar on 25 Sep and chases the late ones. */
+export const DEPARTMENT_INPUTS: DepartmentInput[] = [
+  { id: 'DI-02', procedure: 2, department: 'hr', what: 'Final payroll register — September: totals by cost centre, GOSI, deductions, final settlements', via: 'HR payroll system export → Rawatib', dueOn: '2026-09-30', reminders: ['2026-10-01', '2026-10-05'], note: 'HR confirmed the run was paid on 25 Sep; the register is held for two final settlements.' },
+  { id: 'DI-03', procedure: 3, department: 'requesters', what: 'Certificates of completion in the ERP for goods and services received', via: 'Oracle Procurement receiving → Mawrid', dueOn: '2026-10-02', receivedOn: '2026-10-02', reminders: [], note: 'Receipts confirmed for the vendor deliveries on file; Masterworks MS3 receipt awaited with the invoice.' },
+  { id: 'DI-04', procedure: 4, department: 'operations', what: 'Schedule of completed works and services — Operations lines', via: 'Derived by Shahid from PPM / ServiceNow / timesheets; confirmed by the Service Delivery Lead', dueOn: '2026-10-02', receivedOn: '2026-10-02', reminders: [] },
+  { id: 'DI-05', procedure: 5, department: 'dt', what: 'Schedule of completed works and services — D&T lines', via: 'Derived by Shahid from PPM / ServiceNow / timesheets; confirmed by the D&T delivery lead', dueOn: '2026-10-02', receivedOn: '2026-10-02', reminders: [], note: 'REDC September days flagged: delivered on an expired PO.' },
 ];
 
 /* ----------------------------------------------------- findings, dunning */
@@ -632,7 +705,9 @@ export const TRAIL: TrailEntry[] = [
   T('2026-10-03T08:01:00+03:00', { kind: 'agent', id: 'shahid' }, 'escalated', 'Reminder cadence exhausted — escalation to KAM Majed Al-Otaibi prepared with the UAT exit report attached', { autonomy: 'recommend', recordRef: 'DEMO-KSIA-PO-00000611-L1/D2.13' }),
   T('2026-10-05T10:30:00+03:00', { kind: 'agent', id: 'mawrid' }, 'rejected', 'Accenture ACN-SA-26-0533 (SAR 280,000) — no vendor PO; CR-7 is outside PO 3051 scope. Routed to Procurement.', { autonomy: 'assisted', recordRef: 'DEMO-VI-0186' }),
   T('2026-10-05T10:31:00+03:00', { kind: 'agent', id: 'mawrid' }, 'proposed', 'Masterworks MS3 delivered 25 Sep with no vendor invoice yet on file — accrual DEMO-JE-2609-03 proposed; the invoice is expected through CogniDocs', { autonomy: 'assisted', recordRef: 'DEMO-JE-2609-03' }),
-  T('2026-10-06T06:00:00+03:00', { kind: 'agent', id: 'iqfal' }, 'observed', 'Close Day 4 of 10: 1 done, 7 in progress, 1 blocked, 8 not started. Blocker: ZATCA rejection on Nordwind September.', { autonomy: 'supervised' }),
+  T('2026-10-01T07:00:00+03:00', { kind: 'agent', id: 'iqfal' }, 'acted', 'Reminder to HR: the September payroll register was due 30 Sep (3 WD after pay-out on 25 Sep) — not received', { autonomy: 'supervised', recordRef: 'PR-2026-09' }),
+  T('2026-10-05T07:00:00+03:00', { kind: 'agent', id: 'iqfal' }, 'escalated', 'Second reminder to HR, copied to the Accounting Manager: payroll register 3 WD late; Finance procedures 6–24 cannot start their 2-WD window', { autonomy: 'supervised', recordRef: 'PR-2026-09' }),
+  T('2026-10-06T06:00:00+03:00', { kind: 'agent', id: 'iqfal' }, 'observed', 'Close Day 4 of 10: inputs 1–5 — HR payroll register 4 WD late, D&T schedule flags REDC without PO cover; Finance — ZATCA rejection, Accenture invoice without PO, two bank accounts unsigned; Fixed Assets jobs 14 and 16 not yet run in the ERP.', { autonomy: 'supervised' }),
   T('2026-10-06T06:05:00+03:00', { kind: 'agent', id: 'mizaniya' }, 'proposed', 'September variance decomposed: 504 −SAR 280k PO not received, −160k expired PO cover, +611.8k milestone timing; reforecast prepared', { autonomy: 'recommend' }),
 ];
 
@@ -657,7 +732,7 @@ export function buildWorld(): World {
     bankAccounts: BANK_ACCOUNTS, bankLines: CASH.bankLines, ledger: CASH.ledger, receipts: CASH.receipts,
     vendorPOs: VENDOR_POS, vendorInvoices: VENDOR_INVOICES,
     budget: BUDGET.budget, drivers: BUDGET.drivers, opportunities: OPPORTUNITIES, pipeline: BUDGET.pipeline, settings: DEFAULT_SETTINGS,
-    closeItems: CLOSE_ITEMS, journals: JOURNALS, findings: FINDINGS, dunning: DUNNING,
+    closeItems: CLOSE_ITEMS, journals: JOURNALS, payrollRuns: PAYROLL_RUNS, vatReturns: VAT_RETURNS, erpJobs: ERP_JOBS, inputs: DEPARTMENT_INPUTS, findings: FINDINGS, dunning: DUNNING,
     jobs: [], trail: TRAIL, expenses: [], flags: { reforecastAccepted: false, periodClosed: false, seq: 500, erpSeq: 1, rev: 1 },
   }) as World;
 }

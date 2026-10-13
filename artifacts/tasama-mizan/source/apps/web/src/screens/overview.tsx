@@ -22,7 +22,7 @@ export function OverviewScreen() {
   const fy = fyTotals(world);
   const bm = budgetByMonth(world);
   const cash = cashStats(world);
-  const margins = marginByClient(world);
+  const margins = marginByClient(world).rows;
   const totalRev = margins.reduce((s, m) => s + m.revenue, 0);
   const totalMargin = margins.reduce((s, m) => s + m.margin, 0);
   const gm = totalRev ? totalMargin / totalRev : 0;
@@ -57,7 +57,7 @@ export function OverviewScreen() {
         }
       >
         <div className="flex flex-wrap gap-2">
-          <Chip tone="highlight">{close.done} of {close.total - close.external} procedures done</Chip>
+          <Chip tone="highlight">{close.items.filter((i) => i.number <= 24 && i.status === 'done').length} of {close.tasama} procedures done</Chip>
           <Chip tone={close.blocked ? 'danger' : 'muted'}>{close.blocked} blocked</Chip>
           <Chip tone={close.inputsDone ? 'success' : 'warn'}>inputs 1–5 {close.inputsDone ? 'in' : 'open'}</Chip>
           <Chip tone="muted">hard close Day 10 · target Day 5</Chip>
@@ -143,13 +143,13 @@ export function OverviewScreen() {
             ))}
             <ProvenanceNote>Saudi B2B terms are long and PIF and Government cycles longer still; the segment split is the honest view of DSO.</ProvenanceNote>
           </Panel>
-          <Panel icon={<Coins size={16} />} title="Margin by client (YTD)">
-            {margins.slice(0, 6).map((m) => (
+          <Panel icon={<Coins size={16} />} title="Margin by client (September)">
+            {margins.filter((m) => m.revenue).slice(0, 6).map((m) => (
               <div key={m.client.id} className="flex items-center justify-between border-b border-border/30 py-1.5 text-[12px] last:border-0">
-                <span>{m.client.short}</span><Money v={m.revenue} compact className="text-muted-foreground" /><span className={`font-mono tabular-nums ${m.marginPct >= GM_TARGET ? 'text-success' : 'text-warn'}`}>{pct(m.marginPct)}</span>
+                <span>{m.client.short}</span><Money v={m.revenue} compact className="text-muted-foreground" /><span className={`font-mono tabular-nums ${(m.marginPct ?? 0) >= GM_TARGET ? 'text-success' : 'text-warn'}`}>{m.marginPct === null ? '—' : pct(m.marginPct)}</span>
               </div>
             ))}
-            <ProvenanceNote>Vendor cost is matched from invoices; internal delivery cost is an illustrative ratio per business line.</ProvenanceNote>
+            <ProvenanceNote>Vendor cost is matched from invoices; payroll is allocated from the HR register by timesheet share{marginByClient(world).estimate ? ' — at the August run-rate until September\'s register is booked' : ''}.</ProvenanceNote>
           </Panel>
         </div>
       </PageSection>

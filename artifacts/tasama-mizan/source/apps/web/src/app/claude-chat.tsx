@@ -130,7 +130,7 @@ export function ClaudeChatRail({ rail }: { rail: ReturnType<typeof useChatRail> 
         </ChatAssistantTurn>)}
       {busy && <p role="status" className="px-3 py-2 text-xs text-muted-foreground">Muhasib is processing your request…</p>}
     </>}
-    suggestions={<ChatSuggestions items={section === 'close' ? ['What blocks the September close?', 'Which of the 24 procedures are open?', 'Are the departmental inputs in?', 'Which journals are waiting for approval?', 'Is the bank reconciled?'] : SUGGESTIONS} onSelect={q => void ask(q)} />}
+    suggestions={<ChatSuggestions items={section === 'close' ? ['What blocks the September close?', 'Which of the 24 procedures are open?', 'Is payroll in?', 'What is the VAT payable for September?', 'Which journals are waiting for approval?'] : SUGGESTIONS} onSelect={q => void ask(q)} />}
     composer={<ChatComposer value={draft} onChange={setDraft} onSend={() => void ask(draft)} placeholder={busy ? 'Muhasib is processing your request…' : 'Ask Muhasib about billing, cash, the close…'} />}
   />;
 }

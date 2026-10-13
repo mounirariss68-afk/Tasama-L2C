@@ -17,7 +17,7 @@ The design — research findings, the four-stage process, agents, screens, data,
 | **3 · Service-to-Cash** | Did we deliver, did we bill it, did we get paid? | *Operates*: evidence and CoC, billing run, revenue assurance, collections, cash application, cost of delivery | Shahid, Fatoora, Hares, Tahseel, Tasweya, Mawrid |
 | **4 · Close** | Can we close the month, and where are we against budget? | *Operates*: derived checklist, journals, bank reconciliation, AR tie, budget variance, tax, close pack | Iqfal, Tasweya, Mizaniya, Fatoora |
 
-The **Lead to cash → Process** tab shows the four stages with live numbers, every step's actor, system of record, gate, agent, autonomy and coverage, and a link to the workflow that implements it. The Agents screen groups the nine workflows by stage.
+The **Lead to cash → Process** tab shows the four stages with live numbers, every step's actor, system of record, gate, agent, autonomy and coverage, and a link to the workflow that implements it. The Agents screen groups the eleven workflows by stage.
 
 ## How it runs
 
@@ -63,7 +63,7 @@ MIZAN_URL=http://localhost:5000 node apps/web/tools/screenshot.mjs  # every scre
 
 ## The demo, step by step
 
-The **Scenarios** screen lists six scripts (happy path, exception, escalation, refusal, cash, close). Pressing one docks the **Demo Director** at the bottom of the display: Back · Step · Play · Stop. Each step switches to the persona whose decision it is, opens the screen to watch, runs a real action through the same reducer every click uses, and lists what changed. Nothing is faked — the trail is the same trail. A scenario that already ran on the world says so and offers the reset. Same pattern as Tasama HR and QIB Jahiz.
+The **Scenarios** screen lists nine scripts — lead to cash (S1–S5: happy path, exception, escalation, refusal, cash), the close (S6 opens it, S7 brings payroll in, S8 resolves every blocker and closes the month) and the VAT return (S9). Pressing one docks the **Demo Director** at the bottom of the display: Back · Step · Play · Stop. Each step switches to the persona whose decision it is, opens the screen to watch, runs a real action through the same reducer every click uses, and lists what changed. Nothing is faked — the trail is the same trail. A scenario that already ran on the world says so and offers the reset. Same pattern as Tasama HR and QIB Jahiz.
 
 ## What it is
 
@@ -77,20 +77,20 @@ Tasama sells managed services, projects, staff augmentation and licence pass-thr
 | **Inbox** | What is waiting on me? Every item ends in a decision, named, with the authority making it |
 | **Lead to cash** | Process (four stages) · Contracts & orders (opportunities read from Salesforce, terms from Sirion, POs with consumption and the billing schedule per line) · Billing run · Collections · Clients |
 | **Documents** | Upload a PDF → CogniDocs parse job → canonical envelope → routed to the owning agent (simulated or live) |
-| **Close** | Tasama's own 24 closing procedures with their status derived from the data by Iqfal (inputs 1–5, Finance 6–24; Fixed Assets and Leases shown as outside Mizan) · bank reconciliation per account · budget variance by driver · journals with ERP posting previews |
-| **Agents** | Nine agents with declared autonomy, nine workflows grouped by stage with step-level coverage, the decision trail |
-| **Scenarios** | The demo's remote control: six scripts the Demo Director plays step by step — narration, trigger, persona, screen, what changed |
+| **Close** | Tasama's own 24 closing procedures with their status derived from the data by Iqfal (inputs 1–5 with Iqfal's tracker, Finance 6–24; Fixed Assets and Leases read back from the ERP's jobs), plus line 25, the VAT return · bank reconciliation per account · payroll as Finance receives it (register, Rawatib's proof, journals, cost by engagement) · the VAT return with the invoices behind each box · budget variance by driver and margin by client with payroll in it · journals with ERP posting previews · the Day-1 pack |
+| **Agents** | Ten agents with declared autonomy, eleven workflows grouped by stage with step-level coverage, the decision trail |
+| **Scenarios** | The demo's remote control: nine scripts the Demo Director plays step by step — narration, trigger, persona, screen, what changed; S8 ends with the period closed |
 | **Settings** | Personas · Connections (where the world lives, ERP dialect Oracle / Odoo, CogniDocs) · Thresholds |
 
 ### The agents
 
-Aqd (contract & order terms) · Shahid (delivery evidence & CoC) · Fatoora (billing) · Hares (revenue assurance) · Tahseel (collections) · Tasweya (cash application & bank reconciliation) · Mawrid (cost to deliver) · Iqfal (close) · Mizaniya (budget & forecast) — and Muhasib, the co-pilot in the rail, which in this build matches rather than comprehends and says so.
+Aqd (contract & order terms) · Shahid (delivery evidence & CoC) · Fatoora (billing) · Hares (revenue assurance) · Tahseel (collections) · Tasweya (cash application & bank reconciliation) · Mawrid (cost to deliver) · Rawatib (payroll to ledger: the HR register proven to the bank, the GL and the headcount, booked with provisions and GOSI, allocated to engagements — totals only, never an employee record) · Iqfal (close, the departments' inputs, the ERP jobs read back, the VAT return, the Day-1 pack) · Mizaniya (budget & forecast) — and Muhasib, the co-pilot in the rail, which in this build matches rather than comprehends and says so.
 
 Autonomy is labelled at the rung each agent actually runs at (A0 observe → A4 autonomous). If it asks for approval, it is A2.
 
 ### What is derived, not authored
 
-Billing-event status, unbilled and deferred revenue, PO consumption, ageing and DSO, cash-match proposals, bank reconciliation balances and open items, recognised revenue by line and month, the weighted pipeline, variance against budget, close-checklist status, the inbox, the stage metrics. The inputs are contracts, PO lines, delivery evidence, invoices, bank lines, opportunities and the budget. `npm run check:world` proves the arithmetic ties.
+Billing-event status, unbilled and deferred revenue, PO consumption, ageing and DSO, cash-match proposals, bank reconciliation balances and open items, recognised revenue by line and month, the weighted pipeline, variance against budget, the payroll proof and the cost of delivery by client, the VAT return figures, the month P&L, close-checklist status (all 25 lines), the inbox, the stage metrics. The inputs are contracts, PO lines, delivery evidence, invoices, bank lines, the payroll register totals, the ERP job results, opportunities and the budget. `npm run check:world` proves the arithmetic ties.
 
 ### What is simulated
 
@@ -107,8 +107,8 @@ packages/domain/src/world.ts            the seeded synthetic world, its fifteen 
 packages/domain/src/derive.ts           every derivation the screens read
 packages/domain/src/actions.ts          the action reducer — every change a person or agent can make, as a pure function
 packages/domain/src/process.ts          the four stages, their steps and live metrics
-packages/domain/src/workflows.ts        the nine workflows, each tagged with its stage
-packages/domain/src/scenarios.ts        the six Director scripts — steps with narration, trigger, action, screen, persona
+packages/domain/src/workflows.ts        the eleven workflows, each tagged with its stage
+packages/domain/src/scenarios.ts        the nine Director scripts — steps with narration, trigger, action, screen, persona
 packages/domain/src/erp.ts              the ERP connector, two dialects
 packages/domain/src/cognidocs.ts        the CogniDocs emulator and sample documents
 apps/server/src/index.ts                Express: /api/world, /api/actions, /api/rev, /api/reset, CogniDocs proxy, static

@@ -3,8 +3,8 @@
  * comes from here. Screens read; they never compute.
  */
 import type {
-  BankAccount, BankLine, BillingEvent, BusinessLine, CashReceipt, Client, CloseItem, Invoice, LedgerEntry,
-  POLine, World,
+  BankAccount, BankLine, BillingEvent, BusinessLine, CashReceipt, Client, CloseItem, ErpJob, Invoice, LedgerEntry,
+  PayrollRun, POLine, VatFigures, VatReturn, World,
 } from './types';
 import { USD_SAR, monthOf } from './world';
 
@@ -100,6 +100,13 @@ export function recognisedByLineMonth(world: World): Record<BusinessLine, number
     if (!evidenceComplete(e)) continue;
     out[l.businessLine][monthOf(e.dueDate)] += toSAR(e.expectedAmount, e.currency);
   }
+  return out;
+}
+
+/** Recognised revenue by client, January to the closing month. */
+export function revenueByClientYtd(world: World): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (let m = 1; m <= monthOf(world.closingPeriod); m++) for (const [c, v] of Object.entries(recognisedByClientMonth(world, m))) out[c] = (out[c] ?? 0) + v;
   return out;
 }
 
@@ -215,31 +222,145 @@ export function bankRec(world: World, accountId: string, period = world.closingP
 
 /* -------------------------------------------------------- vendors */
 
-/** Illustrative internal delivery cost per business line, as a share of recognised revenue. */
-export const STAFF_COST_RATIO: Record<BusinessLine, number> = {
-  '502': 0.12, '504': 0.46, '506': 0.44, 'SES-FIN': 0.58, 'SES-HR': 0.6, 'SES-PROC': 0.57, BES: 0.52, EVAS: 0.5,
-};
+/* ------------------------------------------------------- payroll */
 
-export function marginByClient(world: World) {
-  const rows: { client: Client; revenue: number; vendorCost: number; staffCost: number; margin: number; marginPct: number }[] = [];
-  for (const c of world.clients) {
-    let revenue = 0, staff = 0;
-    for (const e of world.events) {
-      if (e.clientId !== c.id) continue;
-      const l = lineOf(world, e.lineId);
-      let amt = 0;
-      if (l.pricingModel === 'advance') amt = (e.expectedAmount / 12) * Math.max(0, Math.min(12, monthOf(world.asOf) - 1 - monthOf(l.start) + 1));
-      else if (!e.noPoCover && e.dueDate <= world.asOf && evidenceComplete(e)) amt = e.expectedAmount;
-      const sar = toSAR(amt, e.currency);
-      revenue += sar; staff += sar * STAFF_COST_RATIO[l.businessLine];
-    }
-    const lineIds = new Set(world.pos.filter((p) => p.clientId === c.id).flatMap((p) => p.lines.map((l) => l.id)));
-    const vendorCost = world.vendorInvoices.filter((v) => v.clientPOLineId && lineIds.has(v.clientPOLineId) && (v.matchStatus === 'matched' || v.matchStatus === 'proposed')).reduce((s, v) => s + v.net, 0);
-    const margin = revenue - vendorCost - staff;
-    rows.push({ client: c, revenue, vendorCost, staffCost: staff, margin, marginPct: revenue ? margin / revenue : 0 });
-  }
-  return rows.sort((a, b) => b.revenue - a.revenue);
+/** Working days between two dates, KSA week (Friday and Saturday off): the days after `a` up to and including `b`. */
+export function workingDaysBetween(a: string, b: string) {
+  let n = 0; const t = new Date(a + 'T00:00:00Z'); const end = Date.parse(b + 'T00:00:00Z');
+  while (t.getTime() < end) { t.setUTCDate(t.getUTCDate() + 1); const dow = t.getUTCDay(); if (dow !== 5 && dow !== 6) n++; }
+  return n;
 }
+
+export const payrollRun = (world: World, period = world.closingPeriod): PayrollRun | undefined => world.payrollRuns.find((r) => r.period === period);
+
+/** The payroll figures the close can use this month: the closing month's run once it is in, otherwise the prior month as a run-rate, labelled as such. */
+export function payrollForClose(world: World): { run: PayrollRun; estimate: boolean } | null {
+  const cur = payrollRun(world);
+  if (cur && cur.status !== 'awaited') return { run: cur, estimate: false };
+  const prior = [...world.payrollRuns].filter((r) => r.period < world.closingPeriod).sort((a, b) => b.period.localeCompare(a.period))[0];
+  return prior ? { run: prior, estimate: true } : null;
+}
+
+export function payrollSummary(world: World) {
+  const run = payrollRun(world);
+  if (!run) return null;
+  const late = run.receivedOn ? 0 : world.asOf > run.dueOn ? workingDaysBetween(run.dueOn, world.asOf) : 0;
+  const input = world.inputs.find((i) => i.procedure === 2);
+  const bankLine = world.bankLines.find((b) => b.type === 'payroll' && b.date.startsWith(run.period));
+  const journals = run.journalIds.map((id) => world.journals.find((j) => j.id === id)).filter(Boolean) as World['journals'];
+  const delivery = run.allocations.filter((a) => a.clientId).reduce((s, a) => s + a.cost, 0);
+  const overhead = run.allocations.filter((a) => !a.clientId).reduce((s, a) => s + a.cost, 0);
+  const gosiTotal = r2(run.gosiEmployee + run.gosiEmployer);
+  return { run, late, reminders: input?.reminders ?? [], bankLine, journals, delivery, overhead, gosiTotal, journalsPosted: journals.length > 0 && journals.every((j) => j.status === 'posted') };
+}
+
+/** Delivery payroll allocated to each client for the month, from the register's timesheet allocation. */
+export function payrollCostByClient(world: World): { byClient: Record<string, { cost: number; fte: number; notes: string[] }>; estimate: boolean; period: string } {
+  const p = payrollForClose(world);
+  const byClient: Record<string, { cost: number; fte: number; notes: string[] }> = {};
+  if (!p) return { byClient, estimate: true, period: world.closingPeriod };
+  for (const a of p.run.allocations) {
+    if (!a.clientId) continue;
+    const row = (byClient[a.clientId] ??= { cost: 0, fte: 0, notes: [] });
+    row.cost += a.cost; row.fte += a.fte; if (a.note) row.notes.push(a.note);
+  }
+  return { byClient, estimate: p.estimate, period: p.run.period };
+}
+
+/* -------------------------------------------------------- vendors */
+
+/** Vendor cost of the closing month by client: matched or proposed vendor invoices dated in the month, plus the vendor accrual where the invoice has not arrived. */
+export function vendorCostByClient(world: World, period = world.closingPeriod): Record<string, number> {
+  const out: Record<string, number> = {};
+  const clientOfLine = (lineId: string | undefined) => lineId ? world.pos.find((p) => p.lines.some((l) => l.id === lineId))?.clientId : undefined;
+  for (const v of world.vendorInvoices) {
+    if (!v.issueDate.startsWith(period) || !['matched', 'proposed'].includes(v.matchStatus)) continue;
+    const c = clientOfLine(v.clientPOLineId); if (c) out[c] = (out[c] ?? 0) + v.net;
+  }
+  // The vendor accrual stands in for the Masterworks invoice until it is on file (then the invoice carries the cost and the accrual reverses).
+  const accrual = world.journals.find((j) => j.kind === 'Vendor accrual' && j.period === period);
+  if (accrual) {
+    const po = world.vendorPOs.find((p) => p.vendor === 'Masterworks');
+    const invoiced = world.vendorInvoices.some((v) => v.vendorName === 'Masterworks' && v.issueDate.startsWith(period) && ['matched', 'proposed'].includes(v.matchStatus));
+    const c = po ? clientOfLine(po.clientPOLineId) : undefined;
+    if (c && !invoiced) out[c] = (out[c] ?? 0) + accrual.lines.reduce((s, l) => s + l.dr, 0);
+  }
+  return out;
+}
+
+/** Gross margin by client for the closing month: recognised revenue less vendor cost less delivery payroll allocated from timesheets. */
+export function marginByClient(world: World) {
+  const m = monthOf(world.closingPeriod);
+  const revenue = recognisedByClientMonth(world, m);
+  const vendor = vendorCostByClient(world);
+  const pay = payrollCostByClient(world);
+  const rows: { client: Client; revenue: number; vendorCost: number; staffCost: number; fte: number; margin: number; marginPct: number | null; notes: string[] }[] = [];
+  for (const c of world.clients) {
+    const rev = revenue[c.id] ?? 0; const vc = vendor[c.id] ?? 0; const pc = pay.byClient[c.id]?.cost ?? 0;
+    if (!rev && !vc && !pc) continue;
+    const margin = rev - vc - pc;
+    rows.push({ client: c, revenue: rev, vendorCost: vc, staffCost: pc, fte: pay.byClient[c.id]?.fte ?? 0, margin, marginPct: rev ? margin / rev : null, notes: pay.byClient[c.id]?.notes ?? [] });
+  }
+  return { rows: rows.sort((a, b) => b.revenue - a.revenue), estimate: pay.estimate, payrollPeriod: pay.period };
+}
+
+/** The month's P&L as the close pack reports it, from the same figures the screens use. */
+export function monthlyPnl(world: World) {
+  const m = monthOf(world.closingPeriod);
+  const rec = recognisedByLineMonth(world);
+  const revenue = Object.values(rec).reduce((s, a) => s + a[m], 0);
+  const vendor = Object.values(vendorCostByClient(world)).reduce((s, v) => s + v, 0);
+  const pay = payrollForClose(world);
+  const delivery = pay ? pay.run.allocations.filter((a) => a.clientId).reduce((s, a) => s + a.cost, 0) : 0;
+  const overhead = pay ? pay.run.allocations.filter((a) => !a.clientId).reduce((s, a) => s + a.cost, 0) : 0;
+  const bankCharges = world.journals.filter((j) => j.kind === 'Bank charges' && j.period === world.closingPeriod).reduce((s, j) => s + j.lines.reduce((x, l) => x + l.dr, 0), 0);
+  const fx = world.journals.filter((j) => j.kind === 'FX difference' && j.period === world.closingPeriod).reduce((s, j) => s + j.lines.filter((l) => l.account.includes('FX')).reduce((x, l) => x + l.cr - l.dr, 0), 0);
+  const dep = world.erpJobs.find((j) => j.procedure === 14 && j.period === world.closingPeriod);
+  const lease = world.erpJobs.find((j) => j.procedure === 15 && j.period === world.closingPeriod);
+  const depreciation = dep?.status === 'completed' ? Number((dep.summary ?? '').match(/SAR ([\d,]+)/)?.[1]?.replace(/,/g, '') ?? 0) : 0;
+  const leaseInterest = lease?.status === 'completed' ? Number((lease.summary ?? '').match(/interest SAR ([\d,]+)/)?.[1]?.replace(/,/g, '') ?? 0) : 0;
+  const grossMargin = revenue - vendor - delivery;
+  const operating = grossMargin - overhead - bankCharges + fx - depreciation - leaseInterest;
+  return { revenue, vendor, delivery, grossMargin, grossMarginPct: revenue ? grossMargin / revenue : 0, overhead, bankCharges, fx, depreciation, leaseInterest, operating, payrollEstimate: pay?.estimate ?? true, depreciationRun: dep?.status === 'completed', byLine: Object.entries(rec).map(([l, a]) => ({ businessLine: l as BusinessLine, revenue: a[m] })).filter((x) => x.revenue) };
+}
+
+/* ------------------------------------------------------------ VAT */
+
+export const vatReturn = (world: World, period = world.closingPeriod): VatReturn | undefined => world.vatReturns.find((v) => v.period === period);
+
+/** The return as the ledger stands: output VAT from cleared tax invoices dated in the period, input VAT from vendor invoices posted to AP, the rest named. */
+export function vatFigures(world: World, period = world.closingPeriod): VatFigures {
+  const sales = world.invoices.filter((i) => i.date.startsWith(period) && !i.creditNoteOf);
+  const cleared = sales.filter((i) => i.zatca === 'cleared');
+  const excluded = sales.filter((i) => i.zatca !== 'cleared').map((i) => ({ ref: i.id, reason: i.zatca === 'rejected' ? `rejected by ZATCA — ${i.zatcaReason ?? 'not a valid tax invoice'}` : `${i.zatca} — not yet cleared by ZATCA`, vat: toSAR(i.vat, i.currency) }));
+  const purchases = world.vendorInvoices.filter((v) => v.issueDate.startsWith(period));
+  const posted = purchases.filter((v) => v.matchStatus === 'matched');
+  const deferred = purchases.filter((v) => ['proposed', 'no_po'].includes(v.matchStatus));
+  const outputVat = r2(cleared.reduce((s, i) => s + toSAR(i.vat, i.currency), 0));
+  const inputVat = r2(posted.reduce((s, v) => s + toSAR(v.vat, v.currency), 0));
+  return {
+    standardRatedSales: r2(cleared.reduce((s, i) => s + toSAR(i.net, i.currency), 0)), outputVat, salesCount: cleared.length, zeroRatedSales: 0,
+    standardRatedPurchases: r2(posted.reduce((s, v) => s + toSAR(v.net, v.currency), 0)), inputVat, purchaseCount: posted.length,
+    deferredInputVat: r2(deferred.reduce((s, v) => s + toSAR(v.vat, v.currency), 0)),
+    deferredNote: deferred.length ? deferred.map((v) => `${v.vendorName} ${v.invoiceRef} (SAR ${v.vat.toLocaleString('en-US')}) — ${v.matchStatus === 'no_po' ? 'no vendor PO; not claimable until approved and posted' : 'match awaiting approval'}`).join('; ') : '',
+    adjustments: 0, adjustmentNote: '',
+    netPayable: r2(outputVat - inputVat),
+    excluded: [...excluded, ...purchases.filter((v) => v.matchStatus === 'rejected').map((v) => ({ ref: v.invoiceRef, reason: 'returned to the vendor — no input VAT without a posted invoice', vat: toSAR(v.vat, v.currency) }))],
+    salesRefs: cleared.map((i) => i.id), purchaseRefs: posted.map((v) => v.id),
+  };
+}
+
+/** The figures the VAT tab shows: frozen once prepared, live before. */
+export function vatForPeriod(world: World, period = world.closingPeriod) {
+  const ret = vatReturn(world, period);
+  const figures = ret?.figures ?? vatFigures(world, period);
+  const rejected = world.invoices.filter((i) => i.date.startsWith(period) && i.zatca === 'rejected');
+  return { ret, figures, canPrepare: !!ret && ret.status === 'open' && rejected.length === 0, rejected };
+}
+
+/* ------------------------------------------------------- ERP jobs */
+
+export const erpJobFor = (world: World, procedure: number, period = world.closingPeriod): ErpJob | undefined => world.erpJobs.find((j) => j.procedure === procedure && j.period === period);
 
 /* --------------------------------------------------------- budget */
 
@@ -282,9 +403,10 @@ const DT_LINES = new Set(['502', '504', '506', 'EVAS']);
 const fmtSar = (n: number) => `SAR ${Math.round(n).toLocaleString('en-US')}`;
 
 /**
- * Tasama's 24 procedures with their status read from the world. Nothing here
- * is ticked by a person: billing, cash, bank, vendor, journal, budget and
- * period state decide. Fixed Assets and Leases stay `external`.
+ * Tasama's 24 procedures (plus the VAT line Cognirise added) with their status
+ * read from the world. Nothing here is ticked by a person: inputs, payroll,
+ * billing, cash, bank, vendor, journal, ERP-job, budget and period state
+ * decide. Fixed Assets and Leases are read back from the ERP's own jobs.
  */
 export function deriveCloseItems(world: World): CloseItem[] {
   const period = world.closingPeriod;
@@ -305,12 +427,45 @@ export function deriveCloseItems(world: World): CloseItem[] {
     return { evs, evidenced, stuck };
   };
   const vendorProposed = world.vendorInvoices.filter((v) => v.matchStatus === 'proposed');
-  const vendorNoPo = world.vendorInvoices.filter((v) => ['no_po', 'rejected'].includes(v.matchStatus));
+  const vendorNoPo = world.vendorInvoices.filter((v) => v.matchStatus === 'no_po');
+  const vendorReturned = world.vendorInvoices.filter((v) => v.matchStatus === 'rejected');
   const financeDone = (items: CloseItem[]) => items.filter((i) => i.group === 'finance' && i.number < 23 && i.status !== 'external').every((i) => i.status === 'done');
+  const pay = payrollSummary(world);
+  const fmtDate = (iso: string) => `${Number(iso.slice(8, 10))} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(iso.slice(5, 7)) - 1]}`;
 
   const items = world.closeItems.map((c) => {
     const x: CloseItem = { ...c };
     switch (c.derivedFrom) {
+      case 'inputs': {
+        const late = world.inputs.filter((i) => !i.receivedOn);
+        x.status = late.length ? (late.some((i) => world.asOf > i.dueOn) ? 'in_progress' : 'in_progress') : 'done';
+        x.evidence = `Calendar and cut-offs issued 25 Sep to HR, Requesters, Operations and D&T; ${world.inputs.filter((i) => i.receivedOn).length} of ${world.inputs.length} inputs received`;
+        x.blocker = late.length ? late.map((i) => `${i.department.toUpperCase()} — ${i.what.split(':')[0].split(' — ')[0]} ${workingDaysBetween(i.dueOn, world.asOf)} WD late${i.reminders.length ? `, reminded ${i.reminders.length}× (${i.reminders.map(fmtDate).join(', ')})` : ''}`).join('; ') : undefined;
+        break;
+      }
+      case 'payroll': {
+        if (!pay) { x.status = 'not_started'; break; }
+        const r = pay.run;
+        if (r.status === 'awaited') { x.status = pay.late ? 'blocked' : 'in_progress'; x.blocker = `Register not received from HR — paid ${fmtDate(r.paidOn)}, due ${fmtDate(r.dueOn)}${pay.late ? `, ${pay.late} WD late` : ''}${pay.reminders.length ? `; Iqfal reminded ${pay.reminders.length}×` : ''}`; x.evidence = undefined; }
+        else if (r.status === 'received') { x.status = 'in_progress'; x.evidence = `Register received ${fmtDate(r.receivedOn!)}: ${r.headcount} heads, net SAR ${r.netPay.toLocaleString('en-US')} — ${r.proof?.bankTies ? 'ties to the WPS payment' : 'does NOT tie to the bank'}; awaiting the Accounting Manager's sign-off`; x.blocker = r.proof && !(r.proof.bankTies && r.proof.headcountTies && r.proof.glTies) ? r.proof.note : undefined; }
+        else if (r.status === 'proved') { x.status = 'in_progress'; x.evidence = `Proof signed; payroll and provisions journals ${pay.journals.every((j) => j.status === 'posted') ? 'posted' : 'proposed'}`; x.blocker = pay.journalsPosted ? undefined : 'Payroll journals awaiting approval'; }
+        else { x.status = 'done'; x.evidence = `Register ${r.headcount} heads · net SAR ${r.netPay.toLocaleString('en-US')} = WPS ${fmtDate(r.paidOn)} = GL · employer cost SAR ${r.employerCost.toLocaleString('en-US')} allocated to ${r.allocations.filter((a) => a.clientId).length} engagements; GOSI SAR ${pay.gosiTotal.toLocaleString('en-US')} due ${fmtDate(r.gosiDueOn)}`; }
+        break;
+      }
+      case 'erp_job': {
+        const j = erpJobFor(world, c.number);
+        x.status = !j ? 'not_started' : j.status === 'completed' ? (j.ties === false ? 'blocked' : 'done') : j.status === 'errors' ? 'blocked' : j.status === 'scheduled' ? 'in_progress' : 'not_started';
+        x.evidence = j ? `${j.name} — ${j.summary ?? j.status}${j.ranAt ? ` (ran ${fmtDate(j.ranAt.slice(0, 10))})` : j.scheduledFor ? ` (scheduled ${fmtDate(j.scheduledFor)})` : ''}` : undefined;
+        x.blocker = j && j.status === 'errors' ? `${j.errors} accounting error(s) in ${j.module}` : j && j.ties === false ? 'FA sub-ledger does not tie to GL' : undefined;
+        break;
+      }
+      case 'vat': {
+        const v = vatForPeriod(world);
+        x.status = !v.ret ? 'not_started' : v.ret.status === 'filed' ? 'done' : v.ret.status === 'approved' ? 'done' : v.ret.status === 'prepared' ? 'in_progress' : v.rejected.length ? 'blocked' : 'not_started';
+        x.evidence = `Output VAT SAR ${v.figures.outputVat.toLocaleString('en-US')} on ${v.figures.salesCount} cleared invoice(s) · input VAT SAR ${v.figures.inputVat.toLocaleString('en-US')} · net payable SAR ${v.figures.netPayable.toLocaleString('en-US')}${v.ret?.status === 'approved' ? ' — approved, ready to file' : v.ret?.status === 'filed' ? ' — filed' : ''}`;
+        x.blocker = v.rejected.length ? `${v.rejected.length} invoice(s) in the period rejected by ZATCA — not valid tax invoices` : v.figures.deferredInputVat ? `Input VAT SAR ${v.figures.deferredInputVat.toLocaleString('en-US')} not claimable: ${v.figures.deferredNote}` : undefined;
+        break;
+      }
       case 'vendor_coc': {
         x.status = vendorProposed.length ? 'in_progress' : 'done';
         x.evidence = `${world.vendorInvoices.filter((v) => v.matchStatus === 'matched').length} vendor invoice(s) matched to a vendor PO and delivery`;
@@ -340,7 +495,7 @@ export function deriveCloseItems(world: World): CloseItem[] {
       case 'vendor_ap': {
         x.status = vendorNoPo.length ? 'blocked' : 'done';
         x.blocker = vendorNoPo.length ? vendorNoPo.map((v) => `${v.vendorName} ${v.invoiceRef} — ${v.matchStatus === 'no_po' ? 'no vendor PO' : 'rejected'}`).join('; ') : undefined;
-        x.evidence = `${world.vendorInvoices.filter((v) => v.matchStatus === 'matched').length} approved and posted to AP`;
+        x.evidence = `${world.vendorInvoices.filter((v) => v.matchStatus === 'matched').length} approved and posted to AP${vendorReturned.length ? `; ${vendorReturned.length} returned to the vendor (${vendorReturned.map((v) => v.invoiceRef).join(', ')})` : ''}`;
         break;
       }
       case 'erp_ap': {
@@ -349,7 +504,15 @@ export function deriveCloseItems(world: World): CloseItem[] {
         break;
       }
       case 'journal_vendor': { x.status = jStatus(['Vendor accrual']); x.evidence = jEvidence(['Vendor accrual']); break; }
-      case 'journal_manual': { x.status = jStatus(['Bank charges', 'FX difference', 'Rate correction (debit note)']); x.evidence = jEvidence(['Bank charges', 'FX difference', 'Rate correction (debit note)']); break; }
+      case 'journal_manual': {
+        const kinds = ['Bank charges', 'FX difference', 'Rate correction (debit note)', 'Payroll', 'Payroll provisions'];
+        const js = jStatus(kinds);
+        const payrollIn = pay?.run.status === 'posted';
+        x.status = js === 'done' && payrollIn ? 'done' : js === 'not_started' && !payrollIn ? 'not_started' : 'in_progress';
+        x.evidence = jEvidence(kinds);
+        x.blocker = payrollIn ? undefined : 'Payroll — the largest cost line — is not yet booked (procedure 2)';
+        break;
+      }
       case 'billing': {
         if (billingOpen.length === 0 && blocked.length === 0) { x.status = 'done'; x.evidence = `All ${period} events invoiced and recorded; ${released.length} invoice(s) posted this month.`; }
         else { x.status = blocked.length ? 'blocked' : 'in_progress'; x.evidence = `${released.length} invoice(s) posted this month`; x.blocker = `${billingOpen.length} event(s) due or missed, ${blocked.length} blocked (${blocked.map((e) => EVENT_STATUS_LABEL[eventStatus(world, e)]).filter((v, i, a) => a.indexOf(v) === i).join('; ')})`; }
@@ -382,7 +545,7 @@ export function deriveCloseItems(world: World): CloseItem[] {
       }
       case 'reports': {
         x.status = world.flags.periodClosed ? 'done' : 'not_started';
-        x.evidence = world.flags.periodClosed ? 'Close pack assembled from the same figures: AR, unbilled, deferred, bank, cost, budget' : undefined;
+        x.evidence = world.flags.periodClosed ? 'Day-1 pack issued from the same figures: P&L, balance sheet, cash, AR ageing, margin by client, headcount cost' : 'Issued when procedure 23 closes the period';
         break;
       }
     }
@@ -390,7 +553,13 @@ export function deriveCloseItems(world: World): CloseItem[] {
   });
   // The ERP close itself is blocked until every Finance procedure Mizan can see is done.
   const p23 = items.find((i) => i.number === 23);
-  if (p23 && !world.flags.periodClosed) { const ready = financeDone(items); p23.status = ready ? 'not_started' : 'blocked'; p23.blocker = ready ? undefined : `${items.filter((i) => i.group === 'finance' && i.number < 23 && !['done', 'external'].includes(i.status)).length} finance procedure(s) still open`; }
+  if (p23 && !world.flags.periodClosed) {
+    const openFinance = items.filter((i) => i.group === 'finance' && i.number < 23 && !['done', 'external'].includes(i.status));
+    const openInputs = items.filter((i) => i.group === 'inputs' && i.status !== 'done');
+    const ready = financeDone(items) && openInputs.length === 0;
+    p23.status = ready ? 'not_started' : 'blocked';
+    p23.blocker = ready ? undefined : [openInputs.length ? `${openInputs.length} input(s) still open (${openInputs.map((i) => `P${i.number}`).join(', ')})` : '', openFinance.length ? `${openFinance.length} finance procedure(s) still open (${openFinance.map((i) => `P${i.number}`).join(', ')})` : ''].filter(Boolean).join('; ');
+  }
   return items;
 }
 
@@ -399,6 +568,8 @@ export function closeSummary(world: World) {
   const by = (s: CloseItem['status']) => items.filter((i) => i.status === s).length;
   const inputsDone = items.filter((i) => i.group === 'inputs').every((i) => i.status === 'done');
   return { items, done: by('done'), inProgress: by('in_progress'), blocked: by('blocked'), notStarted: by('not_started'), external: by('external'), total: items.length, inputsDone,
+    /** Tasama's own 24 lines (the added VAT line is reported separately). */
+    tasama: items.filter((i) => i.number <= 24).length,
     readyToClose: items.filter((i) => i.number < 23 && i.status !== 'external').every((i) => i.status === 'done') };
 }
 
@@ -406,7 +577,8 @@ export function closeSummary(world: World) {
 
 export type InboxType =
   | 'release_invoice' | 'draft_catchup' | 'approve_coc' | 'escalate_coc' | 'approve_dunning' | 'apply_cash'
-  | 'approve_vendor' | 'resolve_vendor' | 'approve_journal' | 'sign_bank_rec' | 'fix_zatca' | 'acknowledge_finding' | 'confirm_schedule' | 'accept_reforecast';
+  | 'approve_vendor' | 'resolve_vendor' | 'approve_journal' | 'sign_bank_rec' | 'fix_zatca' | 'acknowledge_finding' | 'confirm_schedule' | 'accept_reforecast'
+  | 'receive_payroll' | 'approve_payroll' | 'prepare_vat' | 'approve_vat' | 'record_po_cover' | 'read_erp_jobs';
 
 export type InboxItemModel = {
   id: string; type: InboxType; agentId: string; clientId?: string; amount?: number; currency?: string;
@@ -434,6 +606,19 @@ export function inboxItems(world: World): InboxItemModel[] {
   for (const a of world.bankAccounts.filter((x) => !x.signedOff)) { const rec = bankRec(world, a.id); out.push({ id: `rec:${a.id}`, type: 'sign_bank_rec', agentId: 'tasweya', amount: Math.abs(rec.difference), currency: a.currency, title: `Sign off bank reconciliation — ${a.bank} ${a.label}`, preview: rec.explained ? `Difference ${a.currency} ${rec.difference.toLocaleString('en-US')} fully explained by ${rec.unmatchedStatement.length + rec.unmatchedLedger.length} open item(s)` : 'Difference not yet explained', reference: a.id, decision: 'Sign off the September reconciliation', authority: 'Accounting Manager', roles: ['reem', 'noura'], recordRef: a.id, at: '2026-10-06T06:00:00+03:00', attention: rec.explained && rec.unmatchedStatement.length + rec.unmatchedLedger.length <= 1 }); }
   for (const inv of world.invoices.filter((i) => i.zatca === 'rejected')) out.push({ id: `zatca:${inv.id}`, type: 'fix_zatca', agentId: 'fatoora', clientId: inv.clientId, amount: inv.gross, currency: inv.currency, title: `ZATCA rejected ${inv.id} — ${c(inv.clientId)!.short}`, preview: inv.zatcaReason ?? '', reference: inv.id, decision: 'Add the buyer VAT number to the customer master and re-submit', authority: 'Head of Revenue & Treasury', roles: ['faisal', 'omar', 'noura'], recordRef: inv.id, at: '2026-10-02T11:00:00+03:00', attention: true });
   for (const f of world.findings.filter((x) => !x.acknowledged && !['Missed billing', 'Blocked billing', 'Clearance rejected'].includes(x.kind))) out.push({ id: `find:${f.id}`, type: 'acknowledge_finding', agentId: 'hares', clientId: f.clientId, amount: f.amount, currency: 'SAR', title: `${f.kind} — ${f.summary}`, preview: f.detail, reference: f.id, decision: 'Acknowledge and assign the follow-up', authority: 'Head of Revenue & Treasury', roles: ['faisal', 'noura', 'majed'], recordRef: f.id, at: '2026-10-01T07:15:00+03:00', attention: false });
+  // Payroll — the register HR owes, then the proof the Accounting Manager signs
+  const pay = payrollSummary(world);
+  if (pay && pay.run.status === 'awaited') out.push({ id: `pay:${pay.run.id}`, type: 'receive_payroll', agentId: 'rawatib', amount: pay.run.netPay, currency: 'SAR', title: `Payroll register overdue — HR, ${pay.late} WD late`, preview: `Paid ${pay.run.paidOn} through WPS; the register is due 3 WD after pay-out. Iqfal reminded HR ${pay.reminders.length}×. When it lands, Rawatib proves it to the bank, the GL and the headcount before anyone books it.`, reference: pay.run.id, decision: 'Read the register from the HR payroll system and run the proof', authority: 'Accountant', roles: ['omar', 'reem', 'noura'], recordRef: pay.run.id, at: '2026-10-05T07:00:00+03:00', attention: true });
+  if (pay && pay.run.status === 'received') out.push({ id: `pay:${pay.run.id}`, type: 'approve_payroll', agentId: 'rawatib', amount: pay.run.employerCost, currency: 'SAR', title: `Sign the payroll proof — ${pay.run.period}: register = WPS = GL`, preview: pay.run.proof?.note ?? '', reference: pay.run.id, decision: 'Sign the proof; the payroll and provisions journals go to approval', authority: 'Accounting Manager', roles: ['reem', 'noura'], recordRef: pay.run.id, at: '2026-10-06T09:00:00+03:00', attention: true });
+  // VAT — prepare, then approve
+  const vat = vatForPeriod(world);
+  if (vat.ret && vat.ret.status === 'open') out.push({ id: `vat:${vat.ret.id}`, type: 'prepare_vat', agentId: 'iqfal', amount: vat.figures.netPayable, currency: 'SAR', title: `Prepare the VAT return — ${vat.ret.period} (due ${vat.ret.filingDueOn})`, preview: vat.rejected.length ? `${vat.rejected.length} invoice(s) rejected by ZATCA must be cleared first.` : `Output VAT on ${vat.figures.salesCount} cleared invoices, input VAT on ${vat.figures.purchaseCount} posted vendor invoice(s).${vat.figures.deferredInputVat ? ` SAR ${vat.figures.deferredInputVat.toLocaleString('en-US')} input VAT not claimable yet.` : ''}`, reference: vat.ret.id, decision: 'Freeze the figures from the ledger and send the return to the CFO', authority: 'Accounting Manager', roles: ['reem', 'omar', 'noura'], recordRef: vat.ret.id, at: '2026-10-06T06:10:00+03:00', attention: !vat.rejected.length });
+  if (vat.ret && vat.ret.status === 'prepared') out.push({ id: `vat:${vat.ret.id}`, type: 'approve_vat', agentId: 'iqfal', amount: vat.figures.netPayable, currency: 'SAR', title: `Approve the VAT return — ${vat.ret.period}: SAR ${vat.figures.netPayable.toLocaleString('en-US')} payable`, preview: `Output SAR ${vat.figures.outputVat.toLocaleString('en-US')} − input SAR ${vat.figures.inputVat.toLocaleString('en-US')}; filed on the ZATCA portal by ${vat.ret.filingDueOn}.`, reference: vat.ret.id, decision: 'Approve for filing and post the VAT settlement journal', authority: 'Chief Financial Officer', roles: ['noura'], recordRef: vat.ret.id, at: '2026-10-06T09:30:00+03:00', attention: true });
+  // Delivery without PO cover — the KAM records the instrument when it arrives
+  for (const e of world.events.filter((x) => x.noPoCover && !x.invoiceId)) out.push({ id: `pocover:${e.id}`, type: 'record_po_cover', agentId: 'aqd', clientId: e.clientId, amount: e.expectedAmount, currency: e.currency, title: `PO cover — ${c(e.clientId)!.short}: ${e.label}`, preview: e.note ?? 'Delivered without an instrument to bill against.', reference: e.id, decision: 'Record the PO extension when it is received from the client (Sirion); the event becomes due', authority: 'Key Account Manager', roles: ['majed', 'faisal', 'noura'], recordRef: e.id, at: '2026-10-01T07:15:00+03:00', attention: true });
+  // ERP jobs still to read back
+  const openJobs = world.erpJobs.filter((j) => j.period === world.closingPeriod && j.status !== 'completed');
+  if (openJobs.length) out.push({ id: 'erp:fa', type: 'read_erp_jobs', agentId: 'iqfal', title: `Fixed Assets jobs not yet run — ${openJobs.map((j) => `P${j.procedure}`).join(', ')}`, preview: openJobs.map((j) => `${j.name}: ${j.summary ?? j.status}`).join(' · '), reference: openJobs[0].id, decision: 'Read the job status back from the ERP once Fixed Assets has run depreciation and Create Accounting', authority: 'Accountant', roles: ['omar', 'reem', 'noura'], recordRef: openJobs[0].id, at: '2026-10-06T06:00:00+03:00', attention: false });
   for (const p of world.pos.filter((x) => !x.scheduleConfirmed)) out.push({ id: `sched:${p.id}`, type: 'confirm_schedule', agentId: 'aqd', clientId: p.clientId, amount: p.value, currency: p.currency, title: `Confirm billing schedule — ${c(p.clientId)!.short} ${p.id}`, preview: `${p.lines.length} line(s); ${p.lines.flatMap((l) => l.matchFlags).length} mismatch flag(s)`, reference: p.id, decision: 'Confirm the schedule Aqd generated', authority: 'Head of Revenue & Treasury', roles: ['faisal', 'noura'], recordRef: p.id, at: '2026-10-06T08:00:00+03:00', attention: true });
   return out.sort((a, b) => (Number(b.attention) - Number(a.attention)) || (b.amount ?? 0) - (a.amount ?? 0));
 }

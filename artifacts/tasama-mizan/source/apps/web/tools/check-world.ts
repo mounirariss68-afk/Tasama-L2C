@@ -82,7 +82,7 @@ const rec = recognisedByLineMonth(w);
 check('recognised Sep total > 0', Object.values(rec).reduce((s, arr) => s + arr[9], 0) > 0);
 
 // 8. Margin
-for (const m of marginByClient(w)) console.log(`     ${m.client.short.padEnd(9)} revenue ${fmt(Math.round(m.revenue)).padStart(11)} vendor ${fmt(m.vendorCost).padStart(10)} margin ${(m.marginPct * 100).toFixed(0)}%`);
+for (const m of marginByClient(w).rows) console.log(`     ${m.client.short.padEnd(9)} revenue ${fmt(Math.round(m.revenue)).padStart(11)} vendor ${fmt(m.vendorCost).padStart(10)} payroll ${fmt(m.staffCost).padStart(10)} margin ${m.marginPct === null ? 'n/a' : (m.marginPct * 100).toFixed(0) + '%'}`);
 
 // 9. Close & inbox
 const cls = closeSummary(w);

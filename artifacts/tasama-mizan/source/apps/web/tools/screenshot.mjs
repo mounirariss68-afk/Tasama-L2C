@@ -29,7 +29,7 @@ const errors = [];
 const overflow = [];
 const SECTIONS = [
   ['overview', []], ['inbox', []], ['l2c', ['Process', 'Contracts & orders', 'Billing', 'Collections', 'Clients']], ['documents', []],
-  ['close', ['Checklist', 'Bank reconciliation', 'Budget vs actual', 'Journals']], ['agents', ['Team', 'Workflows', 'Decision trail']], ['scenarios', []], ['settings', ['Personas', 'Connections', 'Thresholds']],
+  ['close', ['Checklist', 'Bank', 'Payroll', 'VAT return', 'Budget vs actual', 'Journals', 'Reports']], ['agents', ['Team', 'Workflows', 'Decision trail']], ['scenarios', []], ['settings', ['Personas', 'Connections', 'Thresholds']],
 ];
 const LABEL = { overview: 'Overview', inbox: 'Inbox', l2c: 'Lead to cash', documents: 'Documents', close: 'Close', agents: 'Agents', scenarios: 'Scenarios', settings: 'Settings' };
 
@@ -40,7 +40,7 @@ for (const theme of ['light', 'dark']) {
   page.on('pageerror', (e) => errors.push(`[${theme}] pageerror: ${e.message}`));
   if (SERVER) await fetch(SERVER + '/api/reset', { method: 'POST' });
   await page.goto(base + '/');
-  await page.evaluate((t) => { localStorage.setItem('atelier-theme', t); localStorage.removeItem('mizan-local-world-v4'); }, theme);
+  await page.evaluate((t) => { localStorage.setItem('atelier-theme', t); localStorage.removeItem('mizan-local-world-v5'); }, theme);
   await page.reload();
   await page.waitForTimeout(1200);
   for (const [id, tabs] of SECTIONS) {

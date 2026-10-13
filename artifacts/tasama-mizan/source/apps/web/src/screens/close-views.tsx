@@ -3,7 +3,7 @@
  * Forecast · Actual with variance drivers, and the journals with their ERP
  * posting previews. The checklist itself is in close.tsx.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BookOpenCheck, Landmark, Scale, TrendingUp } from 'lucide-react';
 import { PageColumns, PageContainer, PageSection, Panel, StatRow, StatTile } from '@cognirise/atelier/layout';
 import { DemoReference, ProvenanceChip, ProvenanceNote } from '@cognirise/atelier/archetypes';
@@ -56,7 +56,8 @@ export function Bank() {
 }
 
 export function Budget() {
-  const { world, actions, persona } = useApp();
+  const { world, actions, persona, focus } = useApp();
+  useEffect(() => { if (focus === 'margin') setTimeout(() => document.getElementById('margin-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150); }, [focus]);
   const m = 9;
   const rows = budgetByLine(world, m).filter((r) => r.budget || r.actual || r.forecast);
   const bm = budgetByMonth(world);
@@ -102,10 +103,12 @@ export function Budget() {
           </Panel>
         </PageColumns>
       </PageSection>
-      <PageSection label="Cost of delivery and margin (YTD)">
-        <Panel title="Gross margin by client against the 23% target">
-          <Table head={['Client', 'Revenue', 'Vendor cost (matched)', 'Internal delivery (illustrative)', 'Gross margin', '%', '']} rows={margins.map((x) => [x.client.short, <Money v={x.revenue} compact />, <Money v={x.vendorCost} compact />, <Money v={x.staffCost} compact />, <Money v={x.margin} compact />, <span className={`font-mono tabular-nums ${x.marginPct >= GM_TARGET ? 'text-success' : 'text-warn'}`}>{pct(x.marginPct)}</span>, <div className="min-w-[6rem]"><Meter value={Math.max(0, x.marginPct)} target={GM_TARGET} tone={x.marginPct >= GM_TARGET ? 'success' : 'warn'} /></div>])} />
-          <ProvenanceNote>Vendor cost is what Mawrid matched from invoices; internal delivery cost is an illustrative ratio per business line until Tasama's time and payroll data are connected. The 23% target is the one in Tasama's own finance data model.</ProvenanceNote>
+      <div id="margin-section" className="scroll-mt-4" />
+      <PageSection label={`Cost of delivery and margin — ${monthName(m)}`}>
+        <Panel title={`Gross margin by client against the ${pct(GM_TARGET)} target`} action={<Chip tone={margins.estimate ? 'warn' : 'success'}>{margins.estimate ? `payroll at ${period(margins.payrollPeriod)} run-rate — September register not yet booked` : 'September payroll from the register'}</Chip>}>
+          <Table head={['Client', 'Revenue', 'Vendor cost (matched, accrued)', 'Payroll (timesheet share)', 'FTE', 'Gross margin', '%', '']} rows={margins.rows.map((x) => [x.client.short, <Money v={x.revenue} compact />, <Money v={x.vendorCost} compact />, <Money v={x.staffCost} compact />, <span className="font-mono tabular-nums">{x.fte}</span>, <Money v={x.margin} compact />, <span className={`font-mono tabular-nums ${x.marginPct === null ? 'text-muted-foreground' : x.marginPct >= GM_TARGET ? 'text-success' : 'text-warn'}`}>{x.marginPct === null ? 'no revenue' : pct(x.marginPct)}</span>, <div className="min-w-[6rem]"><Meter value={Math.max(0, x.marginPct ?? 0)} target={GM_TARGET} tone={(x.marginPct ?? 0) >= GM_TARGET ? 'success' : 'warn'} /></div>])} />
+          <div className="mt-2 space-y-1">{margins.rows.filter((x) => x.notes.length).map((x) => <p key={x.client.id} className="text-[11px] text-muted-foreground"><span className="font-medium text-foreground">{x.client.short}</span> — {x.notes.join('; ')}</p>)}</div>
+          <ProvenanceNote>Vendor cost is what Mawrid matched from invoices dated in the month, plus the vendor accrual where the invoice has not arrived. Payroll is the delivery cost Rawatib allocated from the HR register by timesheet share; overhead stays in G&A. The 23% target is the one in Tasama's own finance data model.</ProvenanceNote>
         </Panel>
       </PageSection>
     </>

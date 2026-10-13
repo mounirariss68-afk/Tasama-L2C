@@ -24,7 +24,7 @@ import { invoiceOf, lineOf } from '@mizan/domain/derive';
 import { SAMPLE_DOCS } from '@mizan/domain/cognidocs';
 import { SCENARIOS, scenarioByKey, type DirectorStep, type ScreenRef } from '@mizan/domain/scenarios';
 
-const LOCAL_WORLD = 'mizan-local-world-v4';
+const LOCAL_WORLD = 'mizan-local-world-v5';
 const LOCAL_PERSONA = 'mizan-persona';
 const LOCAL_KEY = 'mizan-cognidocs-key';
 const POLL_MS = 4000;
@@ -86,6 +86,12 @@ export type Actions = {
   acceptReforecast: () => Promise<unknown>;
   completeCloseItem: (id: string) => Promise<unknown>;
   closePeriod: () => Promise<unknown>;
+  receivePayrollRegister: () => Promise<unknown>;
+  approvePayroll: (id: string) => Promise<unknown>;
+  prepareVatReturn: () => Promise<unknown>;
+  approveVatReturn: (id: string) => Promise<unknown>;
+  recordPoCover: (eventId: string, poRef: string, validTo: string) => Promise<unknown>;
+  readBackErpJobs: () => Promise<unknown>;
   addJob: (job: ParseJob) => Promise<unknown>;
   updateJob: (job: ParseJob) => Promise<unknown>;
   routeJob: (job: ParseJob) => Promise<unknown>;
@@ -150,6 +156,16 @@ function diffWorlds(a: World, b: World): Change[] {
   for (const x of b.bankAccounts) { const p = baA.get(x.id); if (p && p.signedOff !== x.signedOff) out.push({ key: `ba~${x.id}`, label: `${x.bank} reconciliation signed off`, screen: { section: 'close', tab: 'bank' } }); }
   const fA = new Map(a.findings.map((f) => [f.id, f]));
   for (const f of b.findings) { const p = fA.get(f.id); if (p && !p.acknowledged && f.acknowledged) out.push({ key: `f~${f.id}`, label: `Finding ${f.kind} resolved${f.resolvedBy ? ` by ${f.resolvedBy}` : ''}`, screen: { section: 'agents', tab: 'trail' } }); }
+  const prA = new Map(a.payrollRuns.map((r) => [r.id, r]));
+  for (const r of b.payrollRuns) { const p = prA.get(r.id); if (p && p.status !== r.status) out.push({ key: `pr~${r.id}`, label: `Payroll ${r.period} → ${r.status}${r.status === 'received' ? ` · proof ${r.proof && r.proof.bankTies && r.proof.glTies && r.proof.headcountTies ? 'passed' : 'failed'}` : ''}`, screen: { section: 'close', tab: 'payroll' } }); }
+  const vrA = new Map(a.vatReturns.map((v) => [v.id, v]));
+  for (const v of b.vatReturns) { const p = vrA.get(v.id); if (p && p.status !== v.status) out.push({ key: `vr~${v.id}`, label: `VAT return ${v.period} → ${v.status}${v.figures ? ` · SAR ${v.figures.netPayable.toLocaleString('en-US')} payable` : ''}`, screen: { section: 'close', tab: 'vat' } }); }
+  const ejA = new Map(a.erpJobs.map((j) => [j.id, j]));
+  for (const j of b.erpJobs) { const p = ejA.get(j.id); if (p && p.status !== j.status) out.push({ key: `ej~${j.id}`, label: `P${j.procedure} ${j.name} → ${j.status}`, screen: { section: 'close', tab: 'checklist', focus: `P${String(j.procedure).padStart(2, '0')}` } }); }
+  const inA = new Map(a.inputs.map((i) => [i.id, i]));
+  for (const i of b.inputs) { const p = inA.get(i.id); if (p && !p.receivedOn && i.receivedOn) out.push({ key: `in~${i.id}`, label: `Input received — ${i.department.toUpperCase()}: ${i.what.split(':')[0]}`, screen: { section: 'close', tab: 'checklist', focus: 'P01' } }); }
+  for (const e of b.events) { const p = evA.get(e.id); if (p && p.noPoCover && !e.noPoCover) out.push({ key: `ev-po~${e.id}`, label: `${e.label.slice(0, 48)} — PO cover restored`, screen: { section: 'l2c', tab: 'billing' } }); }
+  const drA = a.drivers.map((d) => d.amount).join(); if (drA !== b.drivers.map((d) => d.amount).join()) out.push({ key: 'drv', label: 'Variance driver updated', screen: { section: 'close', tab: 'budget' } });
   if (a.flags.reforecastAccepted !== b.flags.reforecastAccepted) out.push({ key: 'fl-refc', label: 'Reforecast accepted — FY2026 forecast re-cut', screen: { section: 'close', tab: 'budget' } });
   if (a.flags.periodClosed !== b.flags.periodClosed) out.push({ key: 'fl-close', label: `${b.closingPeriod} closed`, screen: { section: 'close', tab: 'checklist' } });
   const trail = b.trail.length - a.trail.length;
@@ -297,6 +313,12 @@ export function AppState({ children }: { children: ReactNode }) {
     acceptReforecast: () => dispatch({ type: 'acceptReforecast' }),
     completeCloseItem: (id) => dispatch({ type: 'completeCloseItem', id }),
     closePeriod: () => dispatch({ type: 'closePeriod' }),
+    receivePayrollRegister: () => dispatch({ type: 'receivePayrollRegister' }),
+    approvePayroll: (id) => dispatch({ type: 'approvePayroll', id }),
+    prepareVatReturn: () => dispatch({ type: 'prepareVatReturn' }),
+    approveVatReturn: (id) => dispatch({ type: 'approveVatReturn', id }),
+    recordPoCover: (eventId, poRef, validTo) => dispatch({ type: 'recordPoCover', eventId, poRef, validTo }),
+    readBackErpJobs: () => dispatch({ type: 'readBackErpJobs' }),
     addJob: (job) => dispatch({ type: 'addJob', job }),
     updateJob: (job) => dispatch({ type: 'updateJob', job }),
     routeJob: (job) => dispatch({ type: 'routeJob', jobId: job.id }),
@@ -329,6 +351,10 @@ export function AppState({ children }: { children: ReactNode }) {
         case 'releaseForEvent': { const inv = worldRef.current.invoices.find((i) => i.status === 'draft' && i.eventIds.includes(a.eventId)); if (!inv) { error = 'No draft invoice for that event'; break; } check(await dispatch({ type: 'releaseInvoice', id: inv.id })); result = `${inv.id} released`; break; }
         case 'applyAllProposed': { const ids = worldRef.current.receipts.filter((r) => r.status === 'proposed').map((r) => r.id); for (const id of ids) check(await dispatch({ type: 'applyReceipt', id })); result = `${ids.length} receipt(s) applied`; break; }
         case 'approveAllJournals': { const ids = worldRef.current.journals.filter((j) => j.status === 'proposed').map((j) => j.id); for (const id of ids) check(await dispatch({ type: 'approveJournal', id })); result = `${ids.length} journal(s) posted`; break; }
+        case 'approvePayrollJournals': { const run = worldRef.current.payrollRuns.find((r) => r.period === worldRef.current.closingPeriod); const ids = (run?.journalIds ?? []).filter((id) => worldRef.current.journals.find((j) => j.id === id)?.status === 'proposed'); if (!run || run.status === 'awaited') { error = 'The payroll register has not been received'; break; } for (const id of ids) check(await dispatch({ type: 'approveJournal', id })); result = `${ids.length} payroll journal(s) posted`; break; }
+        case 'fixZatcaAll': { const ids = worldRef.current.invoices.filter((i) => i.zatca === 'rejected').map((i) => i.id); for (const id of ids) check(await dispatch({ type: 'fixZatca', invoiceId: id, vatNo: '300455000000003' })); result = ids.length ? `${ids.length} invoice(s) re-submitted and cleared` : 'Nothing rejected — already clear'; break; }
+        case 'approveAllVendorMatches': { const ids = worldRef.current.vendorInvoices.filter((v) => v.matchStatus === 'proposed').map((v) => v.id); for (const id of ids) check(await dispatch({ type: 'approveVendor', id })); result = ids.length ? `${ids.length} match(es) approved and posted to AP` : 'No match waiting'; break; }
+        case 'signOffAllBankRecs': { const ids = worldRef.current.bankAccounts.filter((a) => !a.signedOff).map((a) => a.id); for (const id of ids) check(await dispatch({ type: 'signOffBankRec', accountId: id })); result = ids.length ? `${ids.length} account(s) signed off` : 'Every account already signed'; break; }
         case 'upload': {
           const sample = SAMPLE_DOCS.find((s) => s.id === a.sample); if (!sample) { error = `No sample ${a.sample}`; break; }
           const job: ParseJob = { id: `DEMO-JOB-${Date.now().toString(16).slice(-6)}`, declaredType: sample.declaredType, detectedType: sample.declaredType, status: 'completed', fileName: sample.fileName, mimeType: 'application/pdf', fileSizeBytes: 48_211 + sample.id.length * 1000, startedAt: nowIso(), parserPath: sample.id.includes('statement') ? 'template_match' : 'vendor_template', confidence: 97, error: null, aiPromptTokens: 0, aiCompletionTokens: 0, aiCostAmount10k: 0, sandbox: true, result: sample.result(), createdAt: nowIso(), completedAt: nowIso(), mode: 'simulated' };

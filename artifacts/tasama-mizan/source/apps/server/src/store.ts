@@ -43,6 +43,10 @@ const SPECS: Record<string, Spec> = {
   pipeline: { table: 'pipeline', cols: ['id', 'businessLine', 'month', 'weighted', 'label'].map((f) => C(f)) },
   closeItems: { table: 'close_items', cols: [C('id'), C('number'), C('group', 'group_name'), C('workstream'), C('title'), C('owner'), C('agentId'), C('deadline'), C('dueDay'), C('tasamaAutomation'), C('coverage'), C('status'), C('blocker'), C('evidence'), C('derivedFrom')] },
   journals: { table: 'journals', cols: ['id', 'kind', 'description', 'lines', 'proposedBy', 'status', 'period', 'erpRef'].map((f) => C(f)) },
+  payrollRuns: { table: 'payroll_runs', cols: ['id', 'period', 'source', 'paidOn', 'dueOn', 'receivedOn', 'wpsBatchRef', 'headcount', 'joiners', 'leavers', 'basic', 'allowances', 'overtime', 'grossPay', 'gosiEmployee', 'gosiEmployer', 'otherDeductions', 'finalSettlements', 'netPay', 'eosbProvision', 'leaveProvision', 'bonusAccrual', 'employerCost', 'gosiDueOn', 'allocations', 'status', 'proof', 'journalIds'].map((f) => C(f)) },
+  vatReturns: { table: 'vat_returns', cols: ['id', 'period', 'filingDueOn', 'status', 'preparedOn', 'approvedOn', 'filedOn', 'figures', 'journalId'].map((f) => C(f)) },
+  erpJobs: { table: 'erp_jobs', cols: ['id', 'procedure', 'module', 'name', 'period', 'status', 'scheduledFor', 'ranAt', 'summary', 'errors', 'ties'].map((f) => C(f)) },
+  inputs: { table: 'department_inputs', cols: ['id', 'procedure', 'department', 'what', 'via', 'dueOn', 'receivedOn', 'reminders', 'note'].map((f) => C(f)) },
   findings: { table: 'findings', cols: ['id', 'agentId', 'kind', 'clientId', 'amount', 'summary', 'detail', 'recordRef', 'acknowledged', 'resolvedBy'].map((f) => C(f)) },
   dunning: { table: 'dunning', cols: ['id', 'invoiceId', 'clientId', 'stage', 'proposedStage', 'draft', 'status', 'promiseToPay', 'dispute'].map((f) => C(f)) },
   jobs: { table: 'parse_jobs', cols: [C('id'), C('declaredType'), C('detectedType'), C('status'), C('fileName'), C('mimeType'), C('fileSizeBytes'), C('startedAt'), C('parserPath'), C('confidence'), C('error'), C('aiPromptTokens'), C('aiCompletionTokens'), C('aiCostAmount10k', 'ai_cost_amount_10k'), C('sandbox'), C('result'), C('createdAt'), C('completedAt'), C('mode'), C('routedTo')] },
@@ -51,7 +55,7 @@ const SPECS: Record<string, Spec> = {
 };
 /** Tables whose domain rows carry no id: one is derived for the primary key and stripped on load. */
 const SYNTHETIC_ID = new Set(['budget', 'drivers', 'pipeline']);
-const JSON_COLS = new Set(['po_lines.milestones', 'po_lines.match_flags', 'billing_events.evidence_required', 'billing_events.evidence', 'invoices.event_ids', 'cash_receipts.invoice_ids', 'vendor_invoices.line_items', 'journals.lines', 'parse_jobs.result', 'trail.actor', 'trail.override']);
+const JSON_COLS = new Set(['po_lines.milestones', 'po_lines.match_flags', 'billing_events.evidence_required', 'billing_events.evidence', 'invoices.event_ids', 'cash_receipts.invoice_ids', 'vendor_invoices.line_items', 'journals.lines', 'parse_jobs.result', 'trail.actor', 'trail.override', 'payroll_runs.allocations', 'payroll_runs.proof', 'payroll_runs.journal_ids', 'vat_returns.figures', 'department_inputs.reminders']);
 
 /** Flatten the world into table → rows (plain objects keyed by field). */
 function tables(world: World): Record<string, Record<string, unknown>[]> {
@@ -104,7 +108,7 @@ export async function ensureSchema() {
 }
 
 /** Bumped when the seed's shape changes in a way an existing database cannot carry (new tables or columns the old rows lack). A mismatch re-seeds on start. */
-export const SEED_VERSION = 2;
+export const SEED_VERSION = 3;
 
 export async function isSeeded(): Promise<boolean> {
   const r = await pool.query(`select value from mizan.world_meta where key = 'seedVersion'`);

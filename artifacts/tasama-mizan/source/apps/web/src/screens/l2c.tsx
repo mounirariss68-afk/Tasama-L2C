@@ -8,7 +8,7 @@ import { PageColumns, PageContainer, PageMasthead, PageSection, Panel, PanelActi
 import { AgentAutonomyChip, DemoReference, ProvenanceChip, ProvenanceNote, WorkItemCard, WorkflowStep, WorkflowWalkthrough, WorkspaceLane, WorkspaceLanes } from '@cognirise/atelier/archetypes';
 import { useApp } from '../app/state';
 import { Body, AgentMark, Btn, Chip, EventStatusChip, KV, Money, Table, Tabs, Trail } from '../app/bits';
-import { ageBucket, ageing, arOpen, clientOf, daysBetween, dso, eventStatus, invoiceOf, isInvoiced, lineOf, marginByClient, openInvoices, poConsumption, toSAR, unbilled, waterfall, GM_TARGET, type EventStatus } from '@mizan/domain/derive';
+import { ageBucket, ageing, arOpen, clientOf, daysBetween, dso, eventStatus, invoiceOf, isInvoiced, lineOf, marginByClient, openInvoices, poConsumption, revenueByClientYtd, toSAR, unbilled, waterfall, GM_TARGET, type EventStatus } from '@mizan/domain/derive';
 import { date, money, pct, period } from '@mizan/domain/format';
 import { STAGES, stageMetrics, type StageId } from '@mizan/domain/process';
 import { WORKFLOWS } from '@mizan/domain/workflows';
@@ -263,16 +263,17 @@ function CollectionsTab({ w }: { w: W }) {
 
 function ClientsTab({ w }: { w: W }) {
   const { world, setClientLens, clientLens, go } = useApp();
-  const margins = marginByClient(world).filter((m) => w.clients.some((c) => c.id === m.client.id));
+  const sep = marginByClient(world).rows; const ytd = revenueByClientYtd(world);
+  const margins = w.clients.map((client) => { const m = sep.find((x) => x.client.id === client.id); return { client, revenue: ytd[client.id] ?? 0, vendorCost: m?.vendorCost ?? 0, marginPct: m?.marginPct ?? null }; }).sort((a, b) => b.revenue - a.revenue);
   const [sel, setSel] = useState<string | null>(clientLens);
   const c = sel ? clientOf(world, sel) : null;
   return (
     <>
       <PageSection label="Accounts">
         <Panel icon={<Building2 size={16} />} title={`${w.clients.length} accounts`}>
-          <Table head={['Client', 'Segment', 'KAM', 'POs', 'Revenue YTD', 'Vendor cost', 'Margin', 'Open AR', 'Findings', '']} rows={margins.map((m) => { const pos = world.pos.filter((p) => p.clientId === m.client.id); const ar = openInvoices(world).filter((i) => i.clientId === m.client.id).reduce((s, i) => s + toSAR(i.gross, i.currency), 0); const f = world.findings.filter((x) => x.clientId === m.client.id && !x.acknowledged).length; return [
+          <Table head={['Client', 'Segment', 'KAM', 'POs', 'Revenue YTD', 'Vendor cost (Sep)', 'Margin (Sep)', 'Open AR', 'Findings', '']} rows={margins.map((m) => { const pos = world.pos.filter((p) => p.clientId === m.client.id); const ar = openInvoices(world).filter((i) => i.clientId === m.client.id).reduce((s, i) => s + toSAR(i.gross, i.currency), 0); const f = world.findings.filter((x) => x.clientId === m.client.id && !x.acknowledged).length; return [
             <button type="button" className="text-start hover:underline" onClick={() => setSel(m.client.id)}><div>{m.client.short}</div><div className="text-[11px] text-muted-foreground">{m.client.name}</div></button>, <Chip tone={m.client.pif ? 'primary' : 'accent'}>{m.client.segment}</Chip>, <span className="text-[11px]">{m.client.kam}</span>, pos.length, <Money v={m.revenue} compact />, <Money v={m.vendorCost} compact />,
-            <span className={`font-mono tabular-nums ${m.marginPct >= GM_TARGET ? 'text-success' : 'text-warn'}`}>{pct(m.marginPct)}</span>, <Money v={ar} compact />, f ? <Chip tone="warn">{f}</Chip> : <span className="text-muted-foreground">—</span>,
+            <span className={`font-mono tabular-nums ${m.marginPct === null ? 'text-muted-foreground' : m.marginPct >= GM_TARGET ? 'text-success' : 'text-warn'}`}>{m.marginPct === null ? '—' : pct(m.marginPct)}</span>, <Money v={ar} compact />, f ? <Chip tone="warn">{f}</Chip> : <span className="text-muted-foreground">—</span>,
             <Btn small tone="ghost" onClick={() => { setClientLens(m.client.id); go('l2c', undefined, 'billing'); }}>Focus</Btn>,
           ]; })} />
         </Panel>

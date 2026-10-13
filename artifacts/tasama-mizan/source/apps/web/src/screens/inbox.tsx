@@ -7,7 +7,7 @@ import { PageContainer, PageMasthead } from '@cognirise/atelier/layout';
 import { DecisionBar, DemoReference, InboxFilters, InboxItem, InboxLayout, InboxList, InboxReader, InboxTabs, ReaderSection, ProvenanceChip } from '@cognirise/atelier/archetypes';
 import { useApp } from '../app/state';
 import { Body, AgentMark, Btn, Chip, EventStatusChip, KV, Money, PostingPreview, Trail } from '../app/bits';
-import { bankRec, clientOf, eventStatus, inboxItems, invoiceOf, lineOf, poConsumption, type InboxItemModel } from '@mizan/domain/derive';
+import { bankRec, clientOf, eventStatus, inboxItems, invoiceOf, lineOf, payrollRun, payrollSummary, poConsumption, vatForPeriod, type InboxItemModel } from '@mizan/domain/derive';
 import { date, money, pct } from '@mizan/domain/format';
 import { ERP_LABEL, invoiceCall, journalCall, receiptCall } from '@mizan/domain/erp';
 import type { DunningStage } from '@mizan/domain/types';
@@ -207,6 +207,42 @@ function Reader({ item, canAct }: { item: InboxItemModel; canAct: boolean }) {
       const po = world.pos.find((p) => p.id === item.recordRef)!;
       body = (<ReaderSection label="Lines and flags">{po.lines.map((l) => <div key={l.id} className="border-b border-border/30 py-1.5 text-xs last:border-0"><div>{l.activity}</div>{l.matchFlags.map((m) => <div key={m} className="text-warn">⚠ {m}</div>)}</div>)}</ReaderSection>);
       bar = (<DecisionBar prompt={item.decision}>{notMine}<Btn tone="primary" disabled={!canAct} onClick={() => actions.confirmSchedule(po.id)}>Confirm schedule</Btn></DecisionBar>);
+      break;
+    }
+    case 'receive_payroll': case 'approve_payroll': {
+      const ps = payrollSummary(world)!; const run = ps.run; const prior = payrollRun(world, '2026-08');
+      const input = world.inputs.find((i) => i.procedure === 2);
+      body = (<>
+        <ReaderSection label="Tasama's procedure 2"><p className="text-sm leading-snug">{item.preview}</p><KV rows={[['Source', run.source], ['Paid', `${date(run.paidOn)} · WPS`], ['Register due', `${date(run.dueOn)} (3 WD after pay-out)`], ['Received', run.receivedOn ? date(run.receivedOn) : <span className="text-danger">not yet — {ps.late} WD late</span>], ['Reminders by Iqfal', input?.reminders.map(date).join(', ') || '—'], ['HR says', input?.note ?? '—']]} /></ReaderSection>
+        {run.proof ? <ReaderSection label="Rawatib's proof"><KV rows={[['Net pay = WPS payment', run.proof.bankTies ? '✓ ties' : '✗ does not tie'], ['Net pay = GL clearing', run.proof.glTies ? '✓ ties' : '✗ does not tie'], ['Headcount', run.proof.headcountTies ? `✓ ${prior?.headcount ?? '—'} + ${run.joiners} − ${run.leavers} = ${run.headcount}` : '✗ does not tie'], ['Gross / net', `${money(run.grossPay)} / ${money(run.netPay)}`], ['Employer cost', money(run.employerCost)], ['GOSI payable', `${money(ps.gosiTotal)} · due ${date(run.gosiDueOn)}`]]} /><p className="mt-2 text-xs text-muted-foreground">{run.proof.note}</p></ReaderSection> : <ReaderSection label="What happens when it lands"><p className="text-xs leading-snug text-muted-foreground">Rawatib reads totals by cost centre, proves net pay against the WPS batch on the SNB statement and the GL, checks the headcount against August, and proposes the payroll and provisions journals. No employee record enters Mizan.</p></ReaderSection>}
+        {ps.journals.length ? <ReaderSection label="Journals proposed">{ps.journals.map((j) => <div key={j.id} className="flex justify-between text-xs"><span><DemoReference>{j.id}</DemoReference> {j.kind} · {j.status}</span><Money v={j.lines.reduce((x, l) => x + l.dr, 0)} /></div>)}</ReaderSection> : null}
+      </>);
+      bar = (<DecisionBar prompt={item.decision}>{notMine}<Btn tone="ghost" onClick={() => go('close', undefined, 'payroll')}>Open payroll</Btn>{item.type === 'receive_payroll' ? <Btn tone="primary" disabled={!canAct} onClick={() => actions.receivePayrollRegister()}>Read the register from HR</Btn> : <Btn tone="primary" disabled={!canAct || !(run.proof?.bankTies && run.proof.glTies && run.proof.headcountTies)} onClick={() => actions.approvePayroll(run.id)}>Sign the proof</Btn>}</DecisionBar>);
+      break;
+    }
+    case 'prepare_vat': case 'approve_vat': {
+      const v = vatForPeriod(world); const f = v.figures;
+      body = (<>
+        <ReaderSection label={`Return — ${v.ret?.period} · due ${v.ret ? date(v.ret.filingDueOn) : ''}`}><KV rows={[['Standard-rated sales', `${money(f.standardRatedSales)} → output VAT ${money(f.outputVat)} (${f.salesCount} invoices)`], ['Standard-rated purchases', `${money(f.standardRatedPurchases)} → input VAT ${money(f.inputVat)} (${f.purchaseCount})`], ['Not claimable yet', f.deferredInputVat ? `${money(f.deferredInputVat)} — ${f.deferredNote}` : 'none'], ['Excluded', f.excluded.length ? f.excluded.map((x) => `${x.ref}: ${x.reason}`).join('; ') : 'none'], ['Net payable to ZATCA', <span className="font-mono text-base tabular-nums">{money(f.netPayable)}</span>]]} /></ReaderSection>
+        {v.rejected.length ? <ReaderSection label="Blocked"><p className="text-sm text-danger">{v.rejected.length} invoice(s) in the period rejected by ZATCA — not valid tax invoices until re-submitted: {v.rejected.map((i) => i.id).join(', ')}.</p></ReaderSection> : null}
+      </>);
+      bar = (<DecisionBar prompt={item.decision}>{notMine}<Btn tone="ghost" onClick={() => go('close', undefined, 'vat')}>Open the return</Btn>{item.type === 'prepare_vat' ? <Btn tone="primary" disabled={!canAct || !v.canPrepare} onClick={() => actions.prepareVatReturn()}>Prepare the return</Btn> : <Btn tone="primary" disabled={!canAct} onClick={() => v.ret && actions.approveVatReturn(v.ret.id)}>Approve for filing</Btn>}</DecisionBar>);
+      break;
+    }
+    case 'record_po_cover': {
+      const ev = world.events.find((e) => e.id === item.recordRef)!; const line = lineOf(world, ev.lineId); const po = world.pos.find((p) => p.id === ev.poId)!;
+      const opp = world.opportunities.find((o) => o.clientId === ev.clientId && o.stage === 'Verbal award');
+      body = (<>
+        <ReaderSection label="Delivery without an instrument"><p className="text-sm leading-snug">{ev.note}</p><KV rows={[['PO', <DemoReference>{po.id}</DemoReference>], ['PO term', `${date(po.start)} – ${date(po.end)} · ${po.status}`], ['Line', line.activity], ['Delivered', `${ev.label} · ${money(ev.expectedAmount, ev.currency)}`], ['Status', <EventStatusChip status={eventStatus(world, ev)} />], ['Verbal award', opp ? `${opp.name} — ${opp.owner}, ${pct(opp.probability)} in the pipeline` : '—']]} /></ReaderSection>
+        <ReaderSection label="What recording the extension does"><p className="text-xs leading-snug text-muted-foreground">Aqd reads the amendment from Sirion, extends the PO term, re-expands the schedule, and the September event becomes due for Fatoora to draft. Mizaniya's "expired PO cover" driver shrinks by the recognised amount. Until the client issues the instrument, the money cannot be recognised or billed — Mizan does not pretend otherwise.</p></ReaderSection>
+      </>);
+      bar = (<DecisionBar prompt={item.decision}>{notMine}<Btn tone="primary" disabled={!canAct} onClick={() => actions.recordPoCover(ev.id, `${po.id}-A1`, '2027-03-31')}>Record PO extension {po.id}-A1 (to 31 Mar 2027)</Btn></DecisionBar>);
+      break;
+    }
+    case 'read_erp_jobs': {
+      const jobs = world.erpJobs.filter((j) => j.period === world.closingPeriod);
+      body = (<ReaderSection label="Fixed Assets and Leases — ERP jobs">{jobs.map((j) => <div key={j.id} className="flex items-start justify-between gap-2 border-b border-border/30 py-1.5 text-xs last:border-0"><div><div>P{j.procedure} · {j.name}</div><div className="text-[11px] text-muted-foreground">{j.summary}</div></div><Chip tone={j.status === 'completed' ? 'success' : j.status === 'errors' ? 'danger' : 'muted'}>{j.status.replace('_', ' ')}</Chip></div>)}<p className="mt-2 text-[11px] text-muted-foreground">Mizan does not run these; it reads the job results and the sub-ledger tie back so the checklist shows them as what they are.</p></ReaderSection>);
+      bar = (<DecisionBar prompt={item.decision}>{notMine}<Btn tone="primary" disabled={!canAct} onClick={() => actions.readBackErpJobs()}>Read back from the ERP</Btn></DecisionBar>);
       break;
     }
     default:

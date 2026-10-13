@@ -135,6 +135,30 @@ create table if not exists expenses (
   status text not null, job_id text
 );
 
+create table if not exists payroll_runs (
+  id text primary key, position integer not null, period text not null, source text not null, paid_on date not null, due_on date not null, received_on date,
+  wps_batch_ref text not null, headcount integer not null, joiners integer not null, leavers integer not null,
+  basic numeric(16,2) not null, allowances numeric(16,2) not null, overtime numeric(16,2) not null, gross_pay numeric(16,2) not null,
+  gosi_employee numeric(16,2) not null, gosi_employer numeric(16,2) not null, other_deductions numeric(16,2) not null, final_settlements numeric(16,2) not null, net_pay numeric(16,2) not null,
+  eosb_provision numeric(16,2) not null, leave_provision numeric(16,2) not null, bonus_accrual numeric(16,2) not null, employer_cost numeric(16,2) not null, gosi_due_on date not null,
+  allocations jsonb not null, status text not null, proof jsonb, journal_ids jsonb not null default '[]'
+);
+
+create table if not exists vat_returns (
+  id text primary key, position integer not null, period text not null, filing_due_on date not null, status text not null,
+  prepared_on date, approved_on date, filed_on date, figures jsonb, journal_id text
+);
+
+create table if not exists erp_jobs (
+  id text primary key, position integer not null, procedure integer not null, module text not null, name text not null, period text not null, status text not null,
+  scheduled_for date, ran_at text, summary text, errors integer not null default 0, ties boolean
+);
+
+create table if not exists department_inputs (
+  id text primary key, position integer not null, procedure integer not null, department text not null, what text not null, via text not null,
+  due_on date not null, received_on date, reminders jsonb not null default '[]', note text
+);
+
 -- Columns added after the first release (create-if-not-exists leaves existing tables alone).
 alter table close_items add column if not exists number integer not null default 0;
 alter table close_items add column if not exists group_name text not null default 'finance';

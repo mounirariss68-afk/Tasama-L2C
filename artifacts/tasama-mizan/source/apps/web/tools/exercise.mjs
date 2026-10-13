@@ -21,18 +21,21 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 if (SERVER) await fetch(SERVER + '/api/reset', { method: 'POST' });
 await page.goto(url);
-await page.evaluate(() => { localStorage.removeItem('mizan-local-world-v4'); localStorage.removeItem('mizan-persona'); });
+await page.evaluate(() => { localStorage.removeItem('mizan-local-world-v5'); localStorage.removeItem('mizan-persona'); });
 await page.reload(); await page.waitForTimeout(1200);
 const mode = await page.evaluate(() => /postgresql/i.test(document.body.innerText) ? 'server' : 'local');
 console.log('mode', mode, SERVER ? `(server ${SERVER})` : '(standalone file)');
 if (SERVER && mode !== 'server') { console.log('FAIL: server mode expected'); process.exit(1); }
-const state = async () => SERVER ? { world: await (await fetch(SERVER + '/api/world')).json() } : page.evaluate(() => ({ world: JSON.parse(localStorage.getItem('mizan-local-world-v4') || 'null') }));
+const state = async () => SERVER ? { world: await (await fetch(SERVER + '/api/world')).json() } : page.evaluate(() => ({ world: JSON.parse(localStorage.getItem('mizan-local-world-v5') || 'null') }));
 const menu = (name) => page.locator('nav, aside').getByRole('button', { name: new RegExp('^' + name) }).first();
-const summary = (w) => `invoices ${w.invoices.length} (drafts ${w.invoices.filter((i) => i.status === 'draft').length}, paid ${w.invoices.filter((i) => i.status === 'paid').length}), receipts proposed ${w.receipts.filter((r) => r.status === 'proposed').length}, journals posted ${w.journals.filter((j) => j.status === 'posted').length}/${w.journals.length}, jobs ${w.jobs.length}, signed ${w.bankAccounts.filter((a) => a.signedOff).length}, trail ${w.trail.length}, rev ${w.flags.rev}`;
+const summary = (w) => `invoices ${w.invoices.length} (drafts ${w.invoices.filter((i) => i.status === 'draft').length}, paid ${w.invoices.filter((i) => i.status === 'paid').length}), receipts proposed ${w.receipts.filter((r) => r.status === 'proposed').length}, journals posted ${w.journals.filter((j) => j.status === 'posted').length}/${w.journals.length}, payroll ${w.payrollRuns.find((r) => r.period === '2026-09')?.status}, vat ${w.vatReturns.find((r) => r.period === '2026-09')?.status}, jobs ${w.jobs.length}, signed ${w.bankAccounts.filter((a) => a.signedOff).length}, trail ${w.trail.length}, rev ${w.flags.rev}, closed ${w.flags.periodClosed}`;
 
 /* ------------------------------------------------ the Director: every scenario, every step */
 let stepsPlayed = 0;
-for (let idx = 0; idx < 6; idx++) {
+await menu('Scenarios').click(); await page.waitForTimeout(400);
+const nCards = await page.locator('main').getByRole('button', { name: /Run scenario|Running|Complete|Run again/ }).count();
+console.log('scenarios', nCards);
+for (let idx = 0; idx < nCards; idx++) {
   await menu('Scenarios').click(); await page.waitForTimeout(400);
   const cards = page.locator('main').getByRole('button', { name: /Run scenario|Running|Complete|Run again/ });
   await cards.nth(idx).click(); await page.waitForTimeout(400);
@@ -41,7 +44,7 @@ for (let idx = 0; idx < 6; idx++) {
   const blocked = await bar.getByText('cannot start').count();
   if (blocked) { console.log(`${head}: cannot start — ${(await bar.textContent()).slice(0, 160)}`); continue; }
   let n = 0;
-  while (n < 12) {
+  while (n < 16) {
     const btn = bar.getByRole('button', { name: /Start|Step/ }).first();
     if (await btn.isDisabled()) break;
     await btn.click();
@@ -99,7 +102,8 @@ let mis = 0;
 for (const inv of w.invoices) { const exp = inv.eventIds.reduce((t, id) => t + (w.events.find((e) => e.id === id)?.expectedAmount ?? 0), 0); if (Math.abs(exp - inv.net) > 0.01 && !inv.billedRate) mis++; }
 console.log('invoices not tying to events:', mis);
 const closeItems = w.closeItems.length;
-console.log('close items persisted:', closeItems, closeItems === 24 ? 'OK' : 'FAIL');
+console.log('close items persisted:', closeItems, closeItems === 25 ? 'OK' : 'FAIL');
+console.log('period closed by S8:', w.flags.periodClosed ? 'OK' : 'FAIL', '· payroll', w.payrollRuns.find((r) => r.period === '2026-09')?.status, '· VAT', w.vatReturns.find((r) => r.period === '2026-09')?.status);
 if (SERVER) {
   const fresh = await ctx.newPage(); await fresh.goto(url); await fresh.waitForTimeout(1200);
   const seen = await fresh.evaluate(() => document.body.innerText);
@@ -109,4 +113,4 @@ if (SERVER) {
 }
 console.log('\nconsole/page errors:', errors.length); errors.slice(0, 15).forEach((e) => console.log('  ', e));
 await browser.close();
-process.exit(errors.length || bad || mis || closeItems !== 24 || stepsPlayed < 20 ? 1 : 0);
+process.exit(errors.length || bad || mis || closeItems !== 25 || stepsPlayed < 40 || !w.flags.periodClosed ? 1 : 0);

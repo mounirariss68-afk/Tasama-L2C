@@ -1,5 +1,5 @@
 /**
- * Scenarios — the demo's remote control. Six scripts, each a sequence of
+ * Scenarios — the demo's remote control. Nine scripts, each a sequence of
  * real actions the Director plays one step at a time, with the narration to
  * read and the screen to watch. Reset restores the seeded world.
  */
@@ -19,8 +19,8 @@ export function ScenariosScreen() {
   const who = (id?: string) => PERSONAS.find((p) => p.id === id)?.name.split(' ')[0] ?? id ?? '';
   return (
     <>
-      <PageMasthead title="Scenarios" meta={`Six scripts · ${SCENARIOS.reduce((s, x) => s + x.steps.length, 0)} steps · world revision ${world.flags.rev}`}
-        figures={<><Chip tone="primary">happy path · exception · escalation · refusal · cash · close</Chip><Chip tone={backend.mode === 'server' ? 'success' : 'warn'}>{backend.mode === 'server' ? 'shared world · PostgreSQL' : 'this browser only'}</Chip></>}
+      <PageMasthead title="Scenarios" meta={`${SCENARIOS.length} scripts · ${SCENARIOS.reduce((s, x) => s + x.steps.length, 0)} steps · world revision ${world.flags.rev}`}
+        figures={<><Chip tone="primary">lead to cash S1–S5 · close S6–S8 · VAT S9</Chip><Chip tone={backend.mode === 'server' ? 'success' : 'warn'}>{backend.mode === 'server' ? 'shared world · PostgreSQL' : 'this browser only'}</Chip></>}
         actions={<Btn tone="ghost" small onClick={() => void doReset()} disabled={resetting}><RotateCcw size={13} /> {resetting ? 'Rebuilding…' : 'Reset the demo'}</Btn>} />
 
       <Body>
@@ -40,10 +40,10 @@ export function ScenariosScreen() {
           <Panel icon={<ListChecks size={16} />} title="Order, timing, reset">
             <ol className="list-decimal space-y-1 ps-5 text-xs leading-relaxed">
               <li>Reset the demo before the room fills. The seeded world is 6 October 2026, Day 4 of the September close — every number ties (<span className="font-mono">npm run check:world</span>).</li>
-              <li>Run S1 → S6 in order. Each step switches to the persona whose decision it is and opens the screen to watch; the Director bar shows the narration, the trigger and what changed. "Step" advances; "Play" advances every 11 seconds.</li>
+              <li>Run S1 → S9 in order. S1–S5 are lead to cash; S6 opens the close, S7 brings payroll in, S8 resolves every blocker and closes the month, S9 files the VAT return. Each step switches to the persona whose decision it is and opens the screen to watch; the Director bar shows the narration, the trigger and what changed. "Step" advances; "Play" advances every 11 seconds.</li>
               <li>Step back shows the previous screen again without undoing anything — the trail is append-only, like the real thing.</li>
-              <li>A scenario that has already run on this world says so and offers the reset. Running them out of order is fine; S2, S3 and S6 do not depend on S1.</li>
-              <li>Muhasib answers from the same world at any point: "what is unbilled?", "can we close September?", "why is KSIA blocked?".</li>
+              <li>A scenario that has already run on this world says so and offers the reset. S8 (the close-out) needs S1, S2, S3, S5 and S7 to have run — it resolves what they leave open; the others can run in any order.</li>
+              <li>Muhasib answers from the same world at any point: "what is unbilled?", "can we close September?", "is payroll in?", "what is the VAT payable?".</li>
             </ol>
             <ProvenanceNote>Scenarios inject nothing: every step is an action the screens could take by hand, run through the same reducer and written to the same trail.</ProvenanceNote>
           </Panel>

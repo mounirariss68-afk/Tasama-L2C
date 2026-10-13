@@ -84,10 +84,10 @@ export const SAMPLE_DOCS: SampleDoc[] = [
     id: 'snb-statement', label: 'Bank statement — SNB operating, September 2026', fileName: 'SNB_Operating_092026.pdf', declaredType: 'bank_statement', description: 'Seven lines: payroll, GOSI, VAT, a vendor payment, the sweep from collections, service charges.', routeHint: 'Tasweya — bank reconciliation, SNB operating',
     result: () => statementResult({ bankName: 'Saudi National Bank', bankId: 12, accountRef: '••••9012', currency: 'SAR', periodStart: '2026-09-01', periodEnd: '2026-09-30', template: 'snb-corp-v4', tx: [
       { date: '2026-09-09', description: 'Accenture Saudi Arabia — ACN-SA-26-0412', raw: 'OUTWARD TRF ACCENTURE SAUDI ARABIA ACN-SA-26-0412', amount: -402_500, type: 'transfer', category: 'Vendor payments' },
-      { date: '2026-09-14', description: 'GOSI contributions — August', raw: 'GOSI SADAD 082026', amount: -312_420, type: 'payment', category: 'Government & tax' },
+      { date: '2026-09-14', description: 'GOSI contributions — August', raw: 'GOSI SADAD 082026', amount: -133_800, type: 'payment', category: 'Government & tax' },
       { date: '2026-09-16', description: 'Transfer from collections account', raw: 'INTERNAL TRF FROM 6080 1016 7519', amount: 600_000, type: 'transfer', category: 'Payment & Transfers' },
-      { date: '2026-09-25', description: 'Payroll — September', raw: 'WPS SALARY FILE 092026 MUDAD', amount: -1_486_300, type: 'payment', category: 'Payroll' },
-      { date: '2026-09-28', description: 'ZATCA — VAT return August', raw: 'SADAD ZATCA VAT 082026', amount: -644_910, type: 'payment', category: 'Government & tax' },
+      { date: '2026-09-25', description: 'Payroll — September', raw: 'WPS SALARY FILE 092026 MUDAD', amount: -804_300, type: 'payment', category: 'Payroll' },
+      { date: '2026-09-28', description: 'ZATCA — VAT return August', raw: 'SADAD ZATCA VAT 082026', amount: -99_916.54, type: 'payment', category: 'Government & tax' },
       { date: '2026-09-30', description: 'Account maintenance and transfer fees', raw: 'SERVICE CHARGES SEP 2026', amount: -345, type: 'fee', category: 'Bank charges' },
     ] }),
   },

@@ -82,13 +82,34 @@ export const WORKFLOWS: WorkflowDef[] = [
     ],
   },
   {
-    id: 'wf-08', stage: 'close', name: 'Month-end close', purpose: 'Close September in five days, with every item owned and every blocker named.', trigger: 'Day 1 of the close.', outcome: 'Journals posted, accounts reconciled, AR tied, variances explained, pack issued, period closed.', coverage: 'implemented', autonomy: 'supervised', agents: ['iqfal', 'mizaniya', 'tasweya', 'mawrid'],
+    id: 'wf-08', stage: 'close', name: 'Month-end close', purpose: 'Close September in five days, with every item owned and every blocker named.', trigger: 'Day 1 of the close.', outcome: 'Journals posted, accounts reconciled, AR tied, variances explained, pack issued, period closed.', coverage: 'implemented', autonomy: 'supervised', agents: ['iqfal', 'rawatib', 'mizaniya', 'tasweya', 'mawrid'],
     steps: [
-      { title: 'Derive the checklist', actor: 'Iqfal', detail: 'Status from the data: billing complete? cash applied? accounts explained? vendor matched? ZATCA clean?', inputs: ['All of Mizan'], outputs: ['Checklist by workstream, owner, due day'], autonomy: 'supervised', coverage: 'implemented' },
+      { title: 'Chase the inputs', actor: 'Iqfal', detail: 'Tasama\'s procedures 1–5: calendar issued on the 25th; HR, Requesters, Operations and D&T reminded while their input is late.', inputs: ['Closing calendar'], outputs: ['Inputs received or chased'], autonomy: 'supervised', coverage: 'implemented' },
+      { title: 'Derive the checklist', actor: 'Iqfal', detail: 'Status from the data: inputs in? payroll proven? billing complete? cash applied? accounts explained? vendor matched? ZATCA clean? ERP jobs run?', inputs: ['All of Mizan'], outputs: ['The 24 procedures by owner, deadline, status'], autonomy: 'supervised', coverage: 'implemented' },
       { title: 'Propose journals', actor: 'Iqfal / Tasweya / Mawrid / Hares', detail: 'Unbilled accrual, deferred release, vendor accrual, bank charges, FX, debit note.', inputs: ['Derived balances'], outputs: ['Journals with ERP preview'], autonomy: 'assisted', coverage: 'implemented' },
       { title: 'Approve and post', actor: 'Accounting Manager', detail: 'Journal import through the connector.', inputs: ['Journals'], outputs: ['Posted entries'], decision: 'Per journal.', coverage: 'implemented' },
       { title: 'Explain the variances', actor: 'Mizaniya', detail: 'Budget · Target · Forecast · Actual by line, drivers, reforecast.', inputs: ['Budget', 'Schedule', 'Pipeline'], outputs: ['Variance commentary', 'Reforecast'], decision: 'FP&A accepts the reforecast.', autonomy: 'recommend', coverage: 'implemented' },
-      { title: 'Close', actor: 'CFO', detail: 'Every item done; pack issued.', inputs: ['Checklist', 'Pack'], outputs: ['Closed period'], decision: 'Close, or hold with the blocker named.', coverage: 'implemented' },
+      { title: 'Read the ERP jobs back', actor: 'Iqfal ← ERP', detail: 'Fixed Assets additions, CIP, depreciation, Create Accounting; lease interest — run in the ERP, read back with their errors and the sub-ledger tie.', inputs: ['ERP job status'], outputs: ['Procedures 12–16 evidenced'], autonomy: 'observe', coverage: 'implemented' },
+      { title: 'Close', actor: 'CFO', detail: 'Every procedure done; Day-1 pack issued.', inputs: ['Checklist', 'Pack'], outputs: ['Closed period'], decision: 'Close, or hold with the blocker named.', coverage: 'implemented' },
+    ],
+  },
+  {
+    id: 'wf-10', stage: 'close', name: 'Payroll into the close', purpose: 'The largest cost line, proven and allocated the morning it arrives.', trigger: 'HR\'s final payroll register reaches Finance (procedure 2, 3 WD after pay-out).', outcome: 'Payroll, provisions and GOSI booked; delivery cost on the engagements; margin per client complete.', coverage: 'implemented', autonomy: 'supervised', agents: ['rawatib', 'tasweya'],
+    steps: [
+      { title: 'Read the register', actor: 'Rawatib ← HR payroll system', detail: 'Totals by cost centre: basic, allowances, overtime, GOSI (employee and employer), deductions, final settlements, net pay. No employee record enters Mizan.', inputs: ['Payroll register'], outputs: ['Payroll run'], autonomy: 'observe', coverage: 'implemented' },
+      { title: 'Prove it three ways', actor: 'Rawatib / Tasweya', detail: 'Net pay = the WPS batch on the bank statement = GL payroll clearing; headcount = prior month + joiners − leavers.', inputs: ['Register', 'Bank lines', 'Ledger'], outputs: ['Proof'], autonomy: 'supervised', coverage: 'implemented' },
+      { title: 'Propose the journals', actor: 'Rawatib', detail: 'Payroll (staff cost split delivery / G&A, employer GOSI, clearing, GOSI payable), provisions (end-of-service, leave, bonus), GOSI due on the 15th.', inputs: ['Proven register'], outputs: ['Two journals with ERP preview'], autonomy: 'assisted', coverage: 'implemented' },
+      { title: 'Sign and approve', actor: 'Accounting Manager', detail: 'The proof is signed first; each journal is approved and posted through the connector.', inputs: ['Proof', 'Journals'], outputs: ['Posted payroll'], decision: 'Sign the proof; approve each journal.', coverage: 'implemented' },
+      { title: 'Allocate to engagements', actor: 'Rawatib → Mizaniya', detail: 'Delivery cost to clients by timesheet share; overhead stays in G&A. Margin per client against 23%.', inputs: ['Timesheets', 'Register'], outputs: ['Cost of delivery by client'], autonomy: 'supervised', coverage: 'implemented' },
+    ],
+  },
+  {
+    id: 'wf-11', stage: 'close', name: 'VAT return', purpose: 'A return that ties to the cleared invoices and the posted AP — nothing else.', trigger: 'Period closing; every invoice of the month cleared by ZATCA.', outcome: 'Return prepared, approved, settlement posted; filed on the ZATCA portal by the end of the following month.', coverage: 'implemented', autonomy: 'assisted', agents: ['iqfal', 'fatoora'],
+    steps: [
+      { title: 'Output VAT from cleared invoices', actor: 'Iqfal ← Fatoora', detail: 'Only ZATCA-cleared tax invoices dated in the period; a rejected invoice blocks the return until re-submitted.', inputs: ['Invoices', 'ZATCA status'], outputs: ['Box 1 — standard-rated sales'], autonomy: 'supervised', coverage: 'implemented' },
+      { title: 'Input VAT from posted AP', actor: 'Iqfal ← Mawrid', detail: 'Only vendor invoices matched and posted; an invoice without a PO is not claimable until it is.', inputs: ['Vendor invoices'], outputs: ['Box 7 — standard-rated purchases'], autonomy: 'supervised', coverage: 'implemented' },
+      { title: 'Prepare and approve', actor: 'Iqfal → Accounting Manager → CFO', detail: 'Figures frozen from the ledger; the CFO approves; the settlement journal posts VAT payable.', inputs: ['Figures'], outputs: ['Approved return', 'Settlement journal'], decision: 'Approve for filing.', coverage: 'implemented' },
+      { title: 'File and pay', actor: 'Accountant · ZATCA portal · SADAD', detail: 'Outside Mizan: the return is filed on the portal and paid through SADAD by the last day of the following month; the payment lands on the next bank statement.', inputs: ['Approved return'], outputs: ['Filed return', 'Payment'], coverage: 'manual' },
     ],
   },
   {

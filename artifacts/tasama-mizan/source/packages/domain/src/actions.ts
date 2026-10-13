@@ -8,10 +8,10 @@
  * by-product of acting, never a separate log someone has to remember.
  */
 import type {
-  BankLine, CashReceipt, DunningStage, Invoice, LedgerEntry, ParseJob, Settings, TrailEntry, VendorInvoice, World,
+  BankLine, CashReceipt, DunningStage, Invoice, Journal, LedgerEntry, ParseJob, Settings, TrailEntry, VendorInvoice, World,
 } from './types';
 import { addDays, vatOf } from './world';
-import { clientOf, deriveCloseItems, eventStatus, poOf, unbilledEvents, toSAR } from './derive';
+import { clientOf, deriveCloseItems, eventStatus, poOf, unbilledEvents, toSAR, vatFigures } from './derive';
 import { creditMemoCall, erpRef, invoiceCall, journalCall, receiptCall, vendorInvoiceCall } from './erp';
 
 export type Action =
@@ -36,6 +36,18 @@ export type Action =
   | { type: 'acceptReforecast' }
   | { type: 'completeCloseItem'; id: string }
   | { type: 'closePeriod' }
+  /** Rawatib reads the month's payroll register from the HR payroll system and proves it to the bank, the GL and the headcount. */
+  | { type: 'receivePayrollRegister'; period?: string }
+  /** The Accounting Manager signs the proof; the payroll and provisions journals go to approval. */
+  | { type: 'approvePayroll'; id: string }
+  /** Iqfal freezes the VAT return figures from the ledger. */
+  | { type: 'prepareVatReturn'; period?: string }
+  /** The CFO approves the return for filing; the settlement journal posts. */
+  | { type: 'approveVatReturn'; id: string }
+  /** The KAM records the PO extension received from the client; delivery on the event is covered again. */
+  | { type: 'recordPoCover'; eventId: string; poRef: string; validTo: string }
+  /** Iqfal reads the Fixed Assets and Leases job results back from the ERP. */
+  | { type: 'readBackErpJobs' }
   | { type: 'addJob'; job: ParseJob }
   | { type: 'updateJob'; job: ParseJob }
   | { type: 'routeJob'; jobId: string }
@@ -197,6 +209,20 @@ export function applyAction(prev: World, action: Action, ctx: ActionContext): Ac
       t({ actor: me, kind: 'approved', summary: `Approved ${j.id} — ${j.kind} (SAR ${j.lines.reduce((s, l) => s + l.dr, 0).toLocaleString('en-US')})`, recordRef: j.id });
       const call = journalCall(erp, j);
       t({ actor: ag(j.proposedBy), kind: 'acted', autonomy: 'assisted', summary: `${j.id} posted as ${j.erpRef}`, detail: `${call.method} ${call.path}\n${JSON.stringify(call.body, null, 1)}`, recordRef: j.id });
+      if (j.kind === 'Bank charges') {
+        // The charge lines were on the statement with nothing in the ledger; posting the journal books them and matches the lines.
+        for (const bl of w.bankLines.filter((b) => b.type === 'charge' && !b.matchedLedgerId && b.date.startsWith(j.period))) {
+          const le: LedgerEntry = { id: nid('LE'), accountId: bl.accountId, date: bl.date, kind: 'charge', description: `Bank charges ${bl.description}`, amount: bl.amount, matchedBankLineId: bl.id };
+          w.ledger.push(le); bl.matchedLedgerId = le.id;
+        }
+      }
+      if (j.kind === 'Payroll' || j.kind === 'Payroll provisions') {
+        const run = w.payrollRuns.find((r) => r.journalIds.includes(j.id));
+        if (run && run.journalIds.every((id) => w.journals.find((x) => x.id === id)?.status === 'posted')) {
+          run.status = 'posted';
+          t({ actor: ag('rawatib'), kind: 'acted', autonomy: 'assisted', summary: `${run.period} payroll booked: employer cost SAR ${run.employerCost.toLocaleString('en-US')} to ${run.allocations.filter((a) => a.clientId).length} engagements and overhead; GOSI SAR ${(run.gosiEmployee + run.gosiEmployer).toLocaleString('en-US')} due ${run.gosiDueOn}`, recordRef: run.id });
+        }
+      }
       if (j.kind === 'Rate correction (debit note)') {
         const f = w.findings.find((x) => x.kind === 'Under-rate'); if (f) { f.acknowledged = true; f.resolvedBy = j.id; }
         const inv = w.invoices.find((i) => i.billedRate); if (inv) { const cm = creditMemoCall(erp, inv, 11_872, 'rate correction'); t({ actor: ag('fatoora'), kind: 'acted', autonomy: 'assisted', summary: `Debit note issued against ${inv.id} for SAR 13,652.80`, detail: `${cm.method} ${cm.path}`, recordRef: inv.id }); }
@@ -237,6 +263,97 @@ export function applyAction(prev: World, action: Action, ctx: ActionContext): Ac
       if (open.length) return { world: prev, error: `${open.length} procedure(s) still open: ${open.map((i) => `P${i.number}`).join(', ')}` };
       w.flags.periodClosed = true;
       t({ actor: me, kind: 'approved', summary: `${w.closingPeriod} closed in the ERP — final review and approvals complete; close pack issued`, recordRef: 'P23' });
+      break;
+    }
+    case 'receivePayrollRegister': {
+      const run = w.payrollRuns.find((r) => r.period === (action.period ?? w.closingPeriod)); if (!run) return { world: prev, error: 'no payroll run for that period' };
+      if (run.status !== 'awaited') return { world: prev, error: 'The register has already been received.' };
+      const prior = [...w.payrollRuns].filter((r) => r.period < run.period).sort((a, b) => b.period.localeCompare(a.period))[0];
+      const bl = w.bankLines.find((b) => b.type === 'payroll' && b.date.startsWith(run.period));
+      const le = w.ledger.find((l) => l.kind === 'payroll' && l.date.startsWith(run.period));
+      const bankTies = !!bl && Math.abs(Math.abs(bl.amount) - run.netPay) < 0.01;
+      const glTies = !!le && Math.abs(Math.abs(le.amount) - run.netPay) < 0.01;
+      const headcountTies = !prior || prior.headcount + run.joiners - run.leavers === run.headcount;
+      run.status = 'received'; run.receivedOn = w.asOf;
+      run.proof = { bankLineId: bl?.id ?? null, bankTies, headcountTies, glTies, note: `Register net SAR ${run.netPay.toLocaleString('en-US')} ${bankTies ? '=' : '≠'} WPS payment ${bl ? bl.date : '(none)'} ${glTies ? '=' : '≠'} GL payroll clearing; ${run.headcount} heads ${headcountTies ? '=' : '≠'} ${prior ? `${prior.headcount} + ${run.joiners} joiners − ${run.leavers} leavers` : 'prior month'}.` };
+      const inp = w.inputs.find((i) => i.procedure === 2); if (inp) inp.receivedOn = w.asOf;
+      const delivery = run.allocations.filter((a) => a.clientId).reduce((s, a) => s + a.cost, 0); const total = run.allocations.reduce((s, a) => s + a.cost, 0);
+      const share = total ? delivery / total : 1;
+      const k = run.period.slice(2, 4) + run.period.slice(5, 7);
+      const n = w.journals.filter((j) => j.period === run.period).length;
+      const jPay: Journal = { id: `DEMO-JE-${k}-${String(n + 1).padStart(2, '0')}`, kind: 'Payroll', period: run.period, proposedBy: 'rawatib', status: 'proposed', description: `${run.period} payroll from the HR register: ${run.headcount} heads, gross SAR ${run.grossPay.toLocaleString('en-US')} (basic, allowances, overtime, ${run.leavers} final settlement(s)), employer GOSI SAR ${run.gosiEmployer.toLocaleString('en-US')}. Net pay SAR ${run.netPay.toLocaleString('en-US')} was paid through WPS on ${run.paidOn} and sits in payroll clearing; GOSI SAR ${(run.gosiEmployee + run.gosiEmployer).toLocaleString('en-US')} is due ${run.gosiDueOn}. Delivery cost is split to engagements by timesheet share; the rest is overhead.`,
+        lines: [
+          { account: '5100 Staff cost — cost of delivery', dr: r2(run.grossPay * share), cr: 0 }, { account: '6100 Staff cost — G&A', dr: r2(run.grossPay - r2(run.grossPay * share)), cr: 0 }, { account: '5110 Employer GOSI contributions', dr: run.gosiEmployer, cr: 0 },
+          { account: '2110 Payroll clearing (settled by WPS 25 Sep)', dr: 0, cr: run.netPay }, { account: '2120 GOSI payable', dr: 0, cr: r2(run.gosiEmployee + run.gosiEmployer) }, { account: '2130 Other deductions payable', dr: 0, cr: run.otherDeductions },
+        ] };
+      const jProv: Journal = { id: `DEMO-JE-${k}-${String(n + 2).padStart(2, '0')}`, kind: 'Payroll provisions', period: run.period, proposedBy: 'rawatib', status: 'proposed', description: `${run.period} provisions computed from the register: end-of-service benefits (Saudi Labour Law, half a month per year of service), annual leave (30 days) and the bonus pool at the budgeted rate.`,
+        lines: [
+          { account: '5120 End-of-service benefits expense', dr: run.eosbProvision, cr: 0 }, { account: '2510 End-of-service benefits provision', dr: 0, cr: run.eosbProvision },
+          { account: '5130 Annual leave expense', dr: run.leaveProvision, cr: 0 }, { account: '2520 Leave provision', dr: 0, cr: run.leaveProvision },
+          { account: '5140 Bonus expense', dr: run.bonusAccrual, cr: 0 }, { account: '2530 Bonus accrual', dr: 0, cr: run.bonusAccrual },
+        ] };
+      w.journals.push(jPay, jProv); run.journalIds = [jPay.id, jProv.id];
+      t({ actor: ag('rawatib'), kind: 'observed', autonomy: 'supervised', summary: `${run.period} payroll register read from the ${run.source}: ${run.headcount} heads (+${run.joiners} / −${run.leavers}), gross SAR ${run.grossPay.toLocaleString('en-US')}, net SAR ${run.netPay.toLocaleString('en-US')} — totals by cost centre only`, recordRef: run.id });
+      t({ actor: ag('rawatib'), kind: bankTies && glTies && headcountTies ? 'acted' : 'escalated', autonomy: 'supervised', summary: `Proof ${bankTies && glTies && headcountTies ? 'passed' : 'FAILED'}: ${run.proof.note}`, recordRef: run.id });
+      t({ actor: ag('rawatib'), kind: 'proposed', autonomy: 'assisted', summary: `${jPay.id} payroll (SAR ${jPay.lines.reduce((x, l) => x + l.dr, 0).toLocaleString('en-US')}) and ${jProv.id} provisions (SAR ${jProv.lines.reduce((x, l) => x + l.dr, 0).toLocaleString('en-US')}) proposed; cost of delivery allocated to ${run.allocations.filter((a) => a.clientId).length} engagements by timesheet share`, recordRef: run.id });
+      created = run.id;
+      break;
+    }
+    case 'approvePayroll': {
+      const run = w.payrollRuns.find((r) => r.id === action.id); if (!run) return { world: prev, error: 'no such payroll run' };
+      if (run.status !== 'received') return { world: prev, error: run.status === 'awaited' ? 'The register has not been received yet.' : 'The proof is already signed.' };
+      run.status = 'proved';
+      t({ actor: me, kind: 'approved', summary: `Payroll proof signed — ${run.period}: register = WPS = GL, headcount ties; journals released for approval`, recordRef: run.id });
+      break;
+    }
+    case 'prepareVatReturn': {
+      const ret = w.vatReturns.find((v) => v.period === (action.period ?? w.closingPeriod)); if (!ret) return { world: prev, error: 'no VAT return for that period' };
+      if (ret.status !== 'open') return { world: prev, error: 'The return is already prepared.' };
+      const rejected = w.invoices.filter((i) => i.date.startsWith(ret.period) && i.zatca === 'rejected');
+      if (rejected.length) return { world: prev, error: `${rejected.length} invoice(s) in ${ret.period} rejected by ZATCA (${rejected.map((i) => i.id).join(', ')}) — clear them before preparing the return.` };
+      ret.figures = vatFigures(w, ret.period); ret.status = 'prepared'; ret.preparedOn = w.asOf;
+      t({ actor: ag('iqfal'), kind: 'proposed', autonomy: 'assisted', summary: `VAT return ${ret.period} prepared from the ledger: output SAR ${ret.figures.outputVat.toLocaleString('en-US')} on ${ret.figures.salesCount} cleared invoices, input SAR ${ret.figures.inputVat.toLocaleString('en-US')} on ${ret.figures.purchaseCount} posted vendor invoice(s), net payable SAR ${ret.figures.netPayable.toLocaleString('en-US')}${ret.figures.deferredInputVat ? `; SAR ${ret.figures.deferredInputVat.toLocaleString('en-US')} input VAT held back (${ret.figures.deferredNote})` : ''}`, recordRef: ret.id });
+      break;
+    }
+    case 'approveVatReturn': {
+      const ret = w.vatReturns.find((v) => v.id === action.id); if (!ret || !ret.figures) return { world: prev, error: 'no prepared return' };
+      if (ret.status !== 'prepared') return { world: prev, error: 'The return is not awaiting approval.' };
+      ret.status = 'approved'; ret.approvedOn = w.asOf;
+      const k = ret.period.slice(2, 4) + ret.period.slice(5, 7);
+      const j: Journal = { id: `DEMO-JE-${k}-${String(w.journals.filter((x) => x.period === ret.period).length + 1).padStart(2, '0')}`, kind: 'VAT settlement', period: ret.period, proposedBy: 'iqfal', status: 'posted', erpRef: nextErp('GL'), description: `${ret.period} VAT return approved: output VAT on cleared invoices settled against recoverable input VAT; the net is payable to ZATCA by ${ret.filingDueOn}.`,
+        lines: [{ account: '2300 VAT output', dr: ret.figures.outputVat, cr: 0 }, { account: '1400 VAT input recoverable', dr: 0, cr: ret.figures.inputVat }, { account: '2310 VAT payable — ZATCA', dr: 0, cr: ret.figures.netPayable }] };
+      w.journals.push(j); ret.journalId = j.id;
+      t({ actor: me, kind: 'approved', summary: `VAT return ${ret.period} approved for filing — SAR ${ret.figures.netPayable.toLocaleString('en-US')} payable to ZATCA by ${ret.filingDueOn}`, recordRef: ret.id });
+      const call = journalCall(erp, j);
+      t({ actor: ag('iqfal'), kind: 'acted', autonomy: 'assisted', summary: `${j.id} VAT settlement posted as ${j.erpRef}; the return is ready to file on the ZATCA portal`, detail: `${call.method} ${call.path}\n${JSON.stringify(call.body, null, 1)}`, recordRef: ret.id });
+      break;
+    }
+    case 'recordPoCover': {
+      const e = w.events.find((x) => x.id === action.eventId); if (!e) return { world: prev, error: 'no such event' };
+      if (!e.noPoCover) return { world: prev, error: 'This event already has PO cover.' };
+      const po = poOf(w, e.poId); const client = clientOf(w, e.clientId);
+      e.noPoCover = false; e.note = `PO cover restored by ${action.poRef} (valid to ${action.validTo}), recorded ${w.asOf}. The September days are billable.`;
+      if (!e.evidence.some((v) => v.kind === 'timesheet')) e.evidence.push({ kind: 'timesheet', value: 18, label: '18 consultant days — timesheets approved', source: 'Timesheets', date: `${e.period}-30` });
+      po.end = action.validTo; po.status = 'open';
+      const contract = w.contracts.find((c) => c.id === po.contractId); if (contract) { contract.end = action.validTo; contract.status = 'active'; }
+      const opp = w.opportunities.find((o) => o.clientId === e.clientId && o.stage === 'Verbal award'); if (opp) opp.stage = 'Closed won';
+      const f = w.findings.find((x) => x.recordRef === e.id && !x.acknowledged); if (f) { f.acknowledged = true; f.resolvedBy = action.poRef; }
+      const drv = w.drivers.find((d) => d.kind === 'Expired PO cover'); if (drv) { drv.amount = r2(drv.amount + toSAR(e.expectedAmount, e.currency)); drv.explanation = `REDC EPMO continuation budgeted at 32 days/month. PO extension ${action.poRef} received ${w.asOf}: the 18 September days are recognised and billable; the remaining variance is 14 days less demand than planned.`; }
+      t({ actor: me, kind: 'approved', summary: `PO extension ${action.poRef} recorded for ${client.short} — valid to ${action.validTo}; ${e.label} is covered`, recordRef: e.id });
+      t({ actor: ag('aqd'), kind: 'acted', autonomy: 'assisted', summary: `${action.poRef} read from Sirion and matched to ${po.id}: term extended to ${action.validTo}, schedule re-expanded; the September event moves from "no PO cover" to due`, recordRef: po.id });
+      break;
+    }
+    case 'readBackErpJobs': {
+      const jobs = w.erpJobs.filter((j) => j.period === w.closingPeriod && j.status !== 'completed');
+      if (!jobs.length) return { world: prev, error: 'Every ERP job for the period has already been read back as completed.' };
+      const RESULT: Record<number, { summary: string; ties?: boolean }> = {
+        14: { summary: 'Depreciation and amortisation SAR 61,300 for September (IT equipment, fit-out, software); no asset class moved more than 3% on the prior month' },
+        16: { summary: 'Create Accounting — Fixed Assets: 0 errors; FA sub-ledger SAR 2,418,900 ties to GL accounts 1500–1590', ties: true },
+        12: { summary: 'Mass Additions complete' }, 13: { summary: 'CIP capitalisation complete' }, 15: { summary: 'Lease interest and invoices complete' },
+      };
+      for (const j of jobs) { const r = RESULT[j.procedure]; j.status = 'completed'; j.ranAt = ctx.now; j.errors = 0; if (r) { j.summary = r.summary; if (r.ties !== undefined) j.ties = r.ties; } }
+      t({ actor: ag('iqfal'), kind: 'observed', autonomy: 'supervised', summary: `ERP job status read back for ${w.closingPeriod}: ${jobs.map((j) => `${j.name} — completed`).join('; ')}. Fixed Assets sub-ledger ties to GL.`, recordRef: 'P16' });
+      count = jobs.length;
       break;
     }
     case 'addJob': { w.jobs = [action.job, ...w.jobs.filter((j) => j.id !== action.job.id)]; break; }

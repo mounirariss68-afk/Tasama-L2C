@@ -283,16 +283,16 @@ export type VarianceDriver = {
   provenance: 'synthetic' | 'illustrative';
 };
 
-/** The group a close procedure belongs to in Tasama's own calendar: departmental inputs (1–5) first, then Finance (6–24). */
-export type CloseGroup = 'inputs' | 'finance';
+/** The group a close procedure belongs to in Tasama's own calendar: departmental inputs (1–5) first, then Finance (6–24); 'added' marks the lines Cognirise added to Tasama's list (the VAT return). */
+export type CloseGroup = 'inputs' | 'finance' | 'added';
 
 /** How Mizan relates to a procedure: it derives the status from the data, it records a department's input, it is an ERP job Mizan only reads back, or it is outside Mizan entirely. */
 export type CloseCoverage = 'derived' | 'input' | 'erp-job' | 'outside';
 
-/** One of Tasama's 24 monthly closing procedures, as supplied by Tasama (number, area, action, responsible, deadline, automation). */
+/** One of Tasama's 24 monthly closing procedures, as supplied by Tasama (number, area, action, responsible, deadline, automation), plus line 25 added by Cognirise. */
 export type CloseItem = {
-  id: string; // P01 … P24
-  number: number; // 1..24 — Tasama's own numbering
+  id: string; // P01 … P25
+  number: number; // 1..24 — Tasama's own numbering; 25 added
   group: CloseGroup;
   workstream: string; // Tasama's "Area / Department" column
   title: string; // the procedure, in Tasama's words, shortened
@@ -301,19 +301,114 @@ export type CloseItem = {
   /** Tasama's deadline, in their words. */
   deadline: string;
   dueDay: number; // business day of the close the deadline falls on, 0 = before month end
-  /** Tasama's own "Automation" column: what their ERP does today. */
-  tasamaAutomation: 'Full' | 'Partial' | 'No' | 'Check with Department';
+  /** Tasama's own "Automation" column: what their ERP does today. 'Not in list' for lines Cognirise added. */
+  tasamaAutomation: 'Full' | 'Partial' | 'No' | 'Check with Department' | 'Not in list';
   coverage: CloseCoverage;
   status: 'done' | 'in_progress' | 'blocked' | 'not_started' | 'external';
   blocker?: string;
   evidence?: string;
   /** Derived items re-evaluate their status from the world; authored items keep theirs. */
-  derivedFrom?: 'billing' | 'ar_tie' | 'bank' | 'cash_applied' | 'vendor_coc' | 'vendor_ap' | 'erp_ap' | 'erp_ar' | 'delivery_ops' | 'delivery_dt' | 'journal_vendor' | 'journal_manual' | 'journal_unbilled' | 'journal_deferred' | 'budget' | 'period_close' | 'reports';
+  derivedFrom?: 'inputs' | 'payroll' | 'billing' | 'ar_tie' | 'bank' | 'cash_applied' | 'vendor_coc' | 'vendor_ap' | 'erp_ap' | 'erp_ar' | 'delivery_ops' | 'delivery_dt' | 'journal_vendor' | 'journal_manual' | 'journal_unbilled' | 'journal_deferred' | 'erp_job' | 'budget' | 'period_close' | 'reports' | 'vat';
+};
+
+/* ----------------------------------------------------------- payroll */
+
+/** How the payroll register's employer cost was spent, by cost centre and client, from timesheets (HR / PPM). Aggregates only: no employee enters Mizan. */
+export type PayrollAllocation = {
+  costCentre: string; // CC-504, CC-SES, CC-GA …
+  businessLine: BusinessLine | 'G&A';
+  clientId: string | null; // null = overhead, not allocated to an engagement
+  fte: number;
+  cost: number; // employer cost allocated, SAR
+  note?: string;
+};
+
+/** One month's payroll as Finance receives it from the HR payroll system: the register totals, the checks, the allocation. */
+export type PayrollRun = {
+  id: string; // PR-2026-09
+  period: string; // YYYY-MM
+  source: string; // the HR payroll system the register comes from
+  paidOn: string; // the WPS pay-out date
+  dueOn: string; // Tasama's deadline: 3 WD after pay-out
+  receivedOn?: string; // when the register reached Finance
+  wpsBatchRef: string;
+  headcount: number; joiners: number; leavers: number;
+  basic: number; allowances: number; overtime: number; grossPay: number;
+  gosiEmployee: number; gosiEmployer: number; otherDeductions: number;
+  finalSettlements: number; // included in gross — leavers' end-of-service settlements paid this month
+  netPay: number; // what the WPS file paid: gross − employee GOSI − deductions
+  eosbProvision: number; leaveProvision: number; bonusAccrual: number;
+  employerCost: number; // gross + employer GOSI + provisions
+  gosiDueOn: string; // GOSI payable date (15th of the following month)
+  allocations: PayrollAllocation[];
+  status: 'awaited' | 'received' | 'proved' | 'posted';
+  /** Rawatib's three checks, written when the register is received. */
+  proof?: { bankLineId: string | null; bankTies: boolean; headcountTies: boolean; glTies: boolean; note: string };
+  journalIds: string[]; // the payroll journal and the provisions journal
+};
+
+/* --------------------------------------------------------------- VAT */
+
+/** The monthly VAT return (KSA, 15%): output VAT from cleared tax invoices, input VAT from posted vendor invoices, filed on the ZATCA portal by the end of the following month. */
+export type VatReturn = {
+  id: string; // VAT-2026-09
+  period: string;
+  filingDueOn: string;
+  status: 'open' | 'prepared' | 'approved' | 'filed';
+  preparedOn?: string; approvedOn?: string; filedOn?: string;
+  /** Frozen when prepared; before that the screens derive the live figures. */
+  figures?: VatFigures;
+  journalId?: string;
+};
+
+export type VatFigures = {
+  standardRatedSales: number; outputVat: number; salesCount: number;
+  zeroRatedSales: number;
+  standardRatedPurchases: number; inputVat: number; purchaseCount: number;
+  /** Input VAT on vendor invoices not yet approved — not claimable this period. */
+  deferredInputVat: number; deferredNote: string;
+  adjustments: number; adjustmentNote: string;
+  netPayable: number;
+  excluded: { ref: string; reason: string; vat: number }[];
+  /** The invoices behind the boxes, so a screen can say which record is in the return and which came later. */
+  salesRefs: string[]; purchaseRefs: string[];
+};
+
+/* ---------------------------------------------------------- ERP jobs */
+
+/** An ERP accounting job Mizan does not run but reads back — Fixed Assets, Leases, Create Accounting. */
+export type ErpJob = {
+  id: string;
+  procedure: number; // the close procedure it evidences
+  module: 'Fixed Assets' | 'Leases' | 'Cash Management' | 'Payables' | 'Receivables';
+  name: string;
+  period: string;
+  status: 'not_run' | 'scheduled' | 'completed' | 'errors';
+  scheduledFor?: string; ranAt?: string;
+  summary?: string;
+  errors: number;
+  /** For sub-ledger jobs: whether the sub-ledger ties to the GL after the run. */
+  ties?: boolean;
+};
+
+/* ------------------------------------------------- department inputs */
+
+/** What the departments owe the close (procedures 2–5) and where each input stands; Iqfal chases the late ones. */
+export type DepartmentInput = {
+  id: string;
+  procedure: number;
+  department: 'hr' | 'requesters' | 'operations' | 'dt';
+  what: string;
+  via: string; // the system or channel the input arrives through
+  dueOn: string;
+  receivedOn?: string;
+  reminders: string[]; // dates Iqfal reminded the department
+  note?: string;
 };
 
 export type Journal = {
   id: string;
-  kind: 'Unbilled revenue accrual' | 'Deferred revenue release' | 'Vendor accrual' | 'Bank charges' | 'FX difference' | 'Rate correction (debit note)';
+  kind: 'Unbilled revenue accrual' | 'Deferred revenue release' | 'Vendor accrual' | 'Bank charges' | 'FX difference' | 'Rate correction (debit note)' | 'Payroll' | 'Payroll provisions' | 'VAT settlement';
   description: string;
   lines: { account: string; dr: number; cr: number }[];
   proposedBy: string; // agent id
@@ -508,6 +603,11 @@ export type World = {
   drivers: VarianceDriver[];
   closeItems: CloseItem[];
   journals: Journal[];
+  /** Payroll as Finance receives it: the prior month posted, the closing month awaited until HR sends the register. */
+  payrollRuns: PayrollRun[];
+  vatReturns: VatReturn[];
+  erpJobs: ErpJob[];
+  inputs: DepartmentInput[];
   findings: Finding[];
   dunning: DunningItem[];
   jobs: ParseJob[];

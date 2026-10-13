@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import { applyAction, type Action } from '@mizan/domain/actions';
-import { arOpen, bankRec, budgetTable, cashStats, closeSummary, eventStatus, inboxItems, overdue, toSAR, unbilled } from '@mizan/domain/derive';
+import { arOpen, bankRec, budgetTable, cashStats, closeSummary, eventStatus, inboxItems, marginByClient, monthlyPnl, overdue, payrollSummary, toSAR, unbilled, vatForPeriod } from '@mizan/domain/derive';
 import { PERSONAS, type PersonaDef } from '@mizan/domain/personas';
 import type { World } from '@mizan/domain/types';
 import { needsLanguageCorrection, responseLanguage } from './assistant-language';
@@ -10,14 +10,14 @@ const MODEL = 'claude-sonnet-5';
 export const claudeConfigured = () => Boolean(process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL && process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY);
 type Proposal = { token: string; summary: string; action: Action; personaId: string; rev: number; expires: number };
 const proposals = new Map<string, Proposal>();
-const collectionNames = ['clients', 'contracts', 'pos', 'events', 'invoices', 'receipts', 'dunning', 'vendorPOs', 'vendorInvoices', 'journals', 'bankAccounts', 'bankLines', 'ledger', 'findings', 'closeItems', 'jobs', 'opportunities', 'budget', 'drivers', 'expenses', 'trail'] as const;
-const actionNames = ['releaseInvoice', 'rejectDraft', 'draftForEvent', 'runBillingRun', 'fixZatca', 'sendCoc', 'escalateCoc', 'approveDunning', 'holdDunning', 'applyReceipt', 'rejectReceipt', 'approveVendor', 'rejectVendor', 'approveJournal', 'signOffBankRec', 'acknowledgeFinding', 'confirmSchedule', 'acceptReforecast', 'closePeriod'] as const;
+const collectionNames = ['clients', 'contracts', 'pos', 'events', 'invoices', 'receipts', 'dunning', 'vendorPOs', 'vendorInvoices', 'journals', 'bankAccounts', 'bankLines', 'ledger', 'findings', 'closeItems', 'payrollRuns', 'vatReturns', 'erpJobs', 'inputs', 'jobs', 'opportunities', 'budget', 'drivers', 'expenses', 'trail'] as const;
+const actionNames = ['releaseInvoice', 'rejectDraft', 'draftForEvent', 'runBillingRun', 'fixZatca', 'sendCoc', 'escalateCoc', 'approveDunning', 'holdDunning', 'applyReceipt', 'rejectReceipt', 'approveVendor', 'rejectVendor', 'approveJournal', 'signOffBankRec', 'acknowledgeFinding', 'confirmSchedule', 'acceptReforecast', 'closePeriod', 'receivePayrollRegister', 'approvePayroll', 'prepareVatReturn', 'approveVatReturn', 'recordPoCover', 'readBackErpJobs'] as const;
 
 const tools: Anthropic.Tool[] = [
-  { name: 'read_close_checklist', description: "Read Tasama's 24 monthly closing procedures for the closing period with their status derived from the data: number, area, procedure, owner, agent, Tasama's deadline, Tasama's own automation column, Mizan coverage (derived / department input / ERP job read back / outside Mizan), status (done, in progress, blocked, not started, external), blocker and evidence. Cite procedure numbers (P6, P17 …). 'external' means Fixed Assets or Leases: outside Mizan, never claim they are done.", input_schema: { type: 'object', properties: { procedure: { type: 'integer', minimum: 1, maximum: 24 } } } },
-  { name: 'financial_summary', description: 'Read current exact domain-derived financial totals, budget, bank reconciliations and close blockers. Amounts are in SAR unless the record says otherwise.', input_schema: { type: 'object', properties: {} } },
+  { name: 'read_close_checklist', description: "Read Tasama's 24 monthly closing procedures for the closing period (plus line 25, the VAT return Cognirise added) with their status derived from the data: number, area, procedure, owner, agent, Tasama's deadline, Tasama's own automation column, Mizan coverage (derived / department input / ERP job read back), status (done, in progress, blocked, not started), blocker and evidence. Cite procedure numbers (P2, P6, P17 …). Procedures 12–16 (Fixed Assets, Leases) run in the ERP and are read back as job results. Procedure 2 is payroll: the HR register, proven by Rawatib, booked with provisions and GOSI.", input_schema: { type: 'object', properties: { procedure: { type: 'integer', minimum: 1, maximum: 25 } } } },
+  { name: 'financial_summary', description: 'Read current exact domain-derived financial totals, budget, bank reconciliations, payroll (the month\'s register, proof, employer cost, GOSI), the VAT return figures, the month P&L and margin by client, and close blockers. Amounts are in SAR unless the record says otherwise.', input_schema: { type: 'object', properties: {} } },
   { name: 'read_records', description: 'Read current database records, or inbox items with approval permissions. Search matches record contents; use exact IDs in proposals. Pagination is supported.', input_schema: { type: 'object', properties: { collection: { type: 'string', enum: [...collectionNames, 'inbox'] }, search: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, required: ['collection'] } },
-  { name: 'propose_action', description: 'Prepare a supported action for explicit human confirmation. Does NOT execute it. For inbox decisions use the item reference as recordId. Invoice IDs for invoice actions; event IDs for billing/CoC; bank account IDs for sign-off; PO IDs for schedule. Give a clear summary and reason for rejection/hold. Never claim a proposal has already been applied.', input_schema: { type: 'object', properties: { type: { type: 'string', enum: [...actionNames] }, recordId: { type: 'string' }, summary: { type: 'string' }, reason: { type: 'string' }, vatNo: { type: 'string' } }, required: ['type', 'summary'] } },
+  { name: 'propose_action', description: 'Prepare a supported action for explicit human confirmation. Does NOT execute it. For inbox decisions use the item reference as recordId. Invoice IDs for invoice actions; event IDs for billing/CoC/PO cover; bank account IDs for sign-off; PO IDs for schedule; payroll run id (PR-2026-09) for approvePayroll; VAT return id (VAT-2026-09) for approveVatReturn. receivePayrollRegister, prepareVatReturn and readBackErpJobs take no record. Give a clear summary and reason for rejection/hold. Never claim a proposal has already been applied.', input_schema: { type: 'object', properties: { type: { type: 'string', enum: [...actionNames] }, recordId: { type: 'string' }, summary: { type: 'string' }, reason: { type: 'string' }, vatNo: { type: 'string' } }, required: ['type', 'summary'] } },
 ];
 
 function authorized(world: World, action: Action, persona: PersonaDef) {
@@ -27,7 +27,11 @@ function authorized(world: World, action: Action, persona: PersonaDef) {
   }
   if (action.type === 'closePeriod') {
     if (persona.id !== 'noura') throw new Error('Only CFO may close the period.');
-    if (!closeSummary(world).readyToClose) throw new Error('Close is blocked: procedures 1–22 must be done (Fixed Assets and Leases sit outside Mizan) before the period can be closed.');
+    if (!closeSummary(world).readyToClose) throw new Error('Close is blocked: procedures 1–22 must be done — including payroll (P2) and the Fixed Assets jobs read back (P12–16) — before the period can be closed.');
+    return;
+  }
+  if (action.type === 'readBackErpJobs' || action.type === 'receivePayrollRegister' || action.type === 'prepareVatReturn') {
+    if (!['noura', 'reem', 'omar'].includes(persona.id)) throw new Error('Only Finance (Accountant, Accounting Manager, CFO) may do this.');
     return;
   }
   if (action.type === 'draftForEvent') {
@@ -43,6 +47,7 @@ function authorized(world: World, action: Action, persona: PersonaDef) {
     applyReceipt: 'apply_cash', rejectReceipt: 'apply_cash', approveVendor: 'approve_vendor',
     rejectVendor: 'resolve_vendor', approveJournal: 'approve_journal', signOffBankRec: 'sign_bank_rec',
     acknowledgeFinding: 'acknowledge_finding', confirmSchedule: 'confirm_schedule', acceptReforecast: 'accept_reforecast',
+    approvePayroll: 'approve_payroll', approveVatReturn: 'approve_vat', recordPoCover: 'record_po_cover',
   };
   const id = 'id' in action ? action.id : 'eventId' in action ? action.eventId : 'invoiceId' in action ? action.invoiceId : 'accountId' in action ? action.accountId : 'poId' in action ? action.poId : undefined;
   const item = inboxItems(world).find(i => i.type === types[action.type] && (!id || i.reference === id));
@@ -56,12 +61,13 @@ function makeAction(input: Record<string, unknown>): Action {
   const type = input.type;
   if (!actionNames.includes(type as typeof actionNames[number])) throw new Error('Unsupported action.');
   const id = typeof input.recordId === 'string' ? input.recordId.trim() : '';
-  if (!['runBillingRun', 'acceptReforecast', 'closePeriod'].includes(String(type)) && !id) throw new Error('An exact record ID is required.');
+  if (!['runBillingRun', 'acceptReforecast', 'closePeriod', 'receivePayrollRegister', 'prepareVatReturn', 'readBackErpJobs'].includes(String(type)) && !id) throw new Error('An exact record ID is required.');
   const reason = typeof input.reason === 'string' ? input.reason.trim().slice(0, 2000) : '';
   if (['rejectDraft', 'holdDunning', 'rejectReceipt', 'rejectVendor'].includes(String(type)) && !reason) throw new Error('A reason is required.');
   switch (type) {
-    case 'runBillingRun': case 'acceptReforecast': case 'closePeriod': return { type };
+    case 'runBillingRun': case 'acceptReforecast': case 'closePeriod': case 'receivePayrollRegister': case 'prepareVatReturn': case 'readBackErpJobs': return { type };
     case 'draftForEvent': case 'sendCoc': case 'escalateCoc': return { type, eventId: id };
+    case 'recordPoCover': { const po = id.split('/')[0].replace(/-L\d+$/, ''); return { type, eventId: id, poRef: `${po}-A1`, validTo: '2027-03-31' }; }
     case 'confirmSchedule': return { type, poId: id };
     case 'signOffBankRec': return { type, accountId: id };
     case 'fixZatca': {
@@ -115,7 +121,7 @@ export async function chat(body: unknown, world: World) {
   });
   if (messages.at(-1)?.role !== 'user') throw new Error('The last message must be a user request.');
   const language = responseLanguage(String(messages.at(-1)!.content));
-  const languageRule = `MANDATORY RESPONSE LANGUAGE FOR THIS REQUEST: ${language}. The latest user question determines the language. All explanations must be in ${language}, even if previous assistant messages, persona names or record contents use another language. Identify yourself as Muhasib, not as the underlying model provider. Active section: ${String(input.section ?? 'unknown')}${typeof input.focus === 'string' ? `, focused record ${input.focus}` : ''}. For monthly-close questions read_close_checklist is authoritative: Tasama's own 24 procedures with statuses derived from the data by Iqfal. Procedures 12–16 (Fixed Assets, Leases) are outside Mizan — report them as such, never as done. Inputs 1–5 come from departments; Finance procedures 6–24 wait for them.`;
+  const languageRule = `MANDATORY RESPONSE LANGUAGE FOR THIS REQUEST: ${language}. The latest user question determines the language. All explanations must be in ${language}, even if previous assistant messages, persona names or record contents use another language. Identify yourself as Muhasib, not as the underlying model provider. Active section: ${String(input.section ?? 'unknown')}${typeof input.focus === 'string' ? `, focused record ${input.focus}` : ''}. For monthly-close questions read_close_checklist is authoritative: Tasama's own 24 procedures with statuses derived from the data by Iqfal, plus line 25 (VAT return) which Cognirise added. Procedures 12–16 (Fixed Assets, Leases) run in the ERP; Mizan reads the job results back — report their job status, never claim Mizan ran them. Inputs 1–5 come from departments; procedure 2 is the HR payroll register (totals only, no employee data in Mizan); Finance procedures 6–24 wait for the inputs. Payroll questions: use financial_summary.payroll (register, proof, employer cost, GOSI due date, allocation). VAT questions: financial_summary.vat (output VAT on cleared invoices, input VAT on posted AP, net payable, filing due date).`;
   const anthropic = new Anthropic({
     apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
     baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
@@ -152,7 +158,8 @@ export async function chat(body: unknown, world: World) {
         } else if (call.name === 'financial_summary') {
           result = persona.clients.length
             ? { asOf: world.asOf, closingPeriod: world.closingPeriod, clients: world.clients.filter(c => persona.clients.includes(c.id)), note: 'Global finance totals outside this persona remit.' }
-            : { asOf: world.asOf, closingPeriod: world.closingPeriod, unbilledSAR: unbilled(world), openARSAR: arOpen(world), overdue: overdue(world), cash: cashStats(world), close: closeSummary(world), budget: budgetTable(world), banks: world.bankAccounts.map(a => ({ account: a, reconciliation: bankRec(world, a.id) })) };
+            : { asOf: world.asOf, closingPeriod: world.closingPeriod, unbilledSAR: unbilled(world), openARSAR: arOpen(world), overdue: overdue(world), cash: cashStats(world), close: closeSummary(world), budget: budgetTable(world), banks: world.bankAccounts.map(a => ({ account: a, reconciliation: bankRec(world, a.id) })),
+              payroll: (() => { const p = payrollSummary(world); if (!p) return null; if (p.run.status !== 'awaited') return p; const { basic: _b, allowances: _a, overtime: _o, grossPay: _g, gosiEmployee: _ge, gosiEmployer: _gr, otherDeductions: _d, finalSettlements: _f, netPay: _n, eosbProvision: _e, leaveProvision: _l, bonusAccrual: _bo, employerCost: _ec, allocations: _al, headcount: _h, joiners: _j, leavers: _lv, ...rest } = p.run; return { ...p, run: { ...rest, note: 'Register not yet received from HR — no September totals are known to Finance yet; the WPS payment is on the bank statement.' }, bankLine: p.bankLine }; })(), vat: vatForPeriod(world), monthPnl: monthlyPnl(world), marginByClient: marginByClient(world), erpJobs: world.erpJobs, departmentInputs: world.inputs };
         } else if (call.name === 'read_records') {
           const collection = String(args.collection);
           if (![...collectionNames, 'inbox'].includes(collection as typeof collectionNames[number])) throw new Error('Unknown collection.');
