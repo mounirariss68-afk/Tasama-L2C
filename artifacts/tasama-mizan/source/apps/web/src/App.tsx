@@ -9,7 +9,7 @@ import {
   LensPicker, MainPanel, TitleBar, TitleBarSearch, UserBadge, Wordmark, useAppChrome, useChatRail,
   type ContextNavItem,
 } from '@cognirise/atelier/layout';
-import { Bot, Database, FileScan, Gauge, HardDrive, Inbox as InboxIcon, Landmark, Settings as SettingsIcon, Workflow, X } from 'lucide-react';
+import { Bot, Database, FileScan, FlaskConical, Gauge, HardDrive, Inbox as InboxIcon, Landmark, Play, Settings as SettingsIcon, Workflow, X } from 'lucide-react';
 import { AppState, useApp } from './app/state';
 import { PERSONAS, type Section } from '@mizan/domain/personas';
 import { ClaudeChatRail } from './app/claude-chat';
@@ -20,20 +20,22 @@ import { DocumentsScreen } from './screens/documents';
 import { CloseScreen } from './screens/close';
 import { AgentsScreen } from './screens/agents';
 import { SettingsScreen } from './screens/settings';
+import { ScenariosScreen } from './screens/scenarios';
+import { DirectorBar } from './app/director';
 import { inboxItems } from '@mizan/domain/derive';
 import { PersonaMenu } from './app/persona-menu';
 
 try { if (!localStorage.getItem('atelier-nav-orientation')) localStorage.setItem('atelier-nav-orientation', 'vertical'); } catch { /* private browsing */ }
 
 const ICON: Record<Section, React.ReactNode> = {
-  overview: <Gauge size={14} />, inbox: <InboxIcon size={14} />, l2c: <Workflow size={14} />, documents: <FileScan size={14} />, close: <Landmark size={14} />, agents: <Bot size={14} />, settings: <SettingsIcon size={14} />,
+  overview: <Gauge size={14} />, inbox: <InboxIcon size={14} />, l2c: <Workflow size={14} />, documents: <FileScan size={14} />, close: <Landmark size={14} />, agents: <Bot size={14} />, scenarios: <Play size={14} />, settings: <SettingsIcon size={14} />,
 };
-const LABEL: Record<Section, string> = { overview: 'Overview', inbox: 'Inbox', l2c: 'Lead to cash', documents: 'Documents', close: 'Close', agents: 'Agents', settings: 'Settings' };
+const LABEL: Record<Section, string> = { overview: 'Overview', inbox: 'Inbox', l2c: 'Lead to cash', documents: 'Documents', close: 'Close', agents: 'Agents', scenarios: 'Scenarios', settings: 'Settings' };
 
 function Shell() {
   const rail = useChatRail(false);
   const chrome = useAppChrome();
-  const { world, persona, setPersona, nav, section, go, clientLens, setClientLens, backend, clearNotice } = useApp();
+  const { world, persona, setPersona, nav, section, go, clientLens, setClientLens, backend, clearNotice, director } = useApp();
   const [search, setSearch] = useState('');
   const [personaOpen, setPersonaOpen] = useState(false);
   useEffect(() => { if (!personaOpen) return; const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPersonaOpen(false); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [personaOpen]);
@@ -48,7 +50,7 @@ function Shell() {
     const out: { label: string; sub: string; run: () => void }[] = [];
     for (const c of visibleClients) if (c.short.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)) out.push({ label: c.short, sub: c.name, run: () => { setClientLens(c.id); go('l2c', undefined, 'clients'); } });
     for (const i of world.invoices) if (i.id.toLowerCase().includes(q)) out.push({ label: i.id, sub: i.description, run: () => go('l2c', undefined, 'collections') });
-    for (const p of world.pos) if (p.id.toLowerCase().includes(q)) out.push({ label: p.id, sub: world.clients.find((c) => c.id === p.clientId)!.short, run: () => { setClientLens(p.clientId); go('l2c', undefined, 'orders'); } });
+    for (const p of world.pos) if (p.id.toLowerCase().includes(q)) out.push({ label: p.id, sub: world.clients.find((c) => c.id === p.clientId)!.short, run: () => { setClientLens(p.clientId); go('l2c', undefined, 'contracts'); } });
     for (const j of world.journals) if (j.id.toLowerCase().includes(q) || j.kind.toLowerCase().includes(q)) out.push({ label: j.id, sub: j.kind, run: () => go('close', undefined, 'journals') });
     return out.slice(0, 8);
   }, [search, world, visibleClients, go, setClientLens]);
@@ -59,7 +61,8 @@ function Shell() {
       titleBar={<TitleBar brand={<Wordmark>Mizan</Wordmark>}
         search={<div className="relative"><TitleBarSearch placeholder="Search clients, POs, invoices, journals…" value={search} onChange={setSearch} />{hits.length ? <div className="glass-popover absolute start-0 top-full z-50 mt-1 w-[26rem] rounded-xl p-1.5">{hits.map((h, i) => <button key={i} type="button" onClick={() => { setSearch(''); h.run(); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-start hover:bg-card/70"><span className="font-mono text-[11px] text-foreground">{h.label}</span><span className="truncate text-[11px] text-muted-foreground">{h.sub}</span></button>)}</div> : null}</div>}
         lens={<div className="flex items-center gap-2"><LensPicker lenses={lenses} value={clientLens ?? 'all'} onChange={(id) => setClientLens(id === 'all' ? null : id)} />
-          <button type="button" onClick={() => go('settings', undefined, 'data')} title={backend.mode === 'server' ? `World in PostgreSQL · revision ${backend.rev}` : backend.reason ?? 'World in this browser'} className={`hidden items-center gap-1 rounded-full border px-2 py-1 font-mono text-[10px] uppercase tracking-wider md:inline-flex ${backend.mode === 'server' ? 'border-success/40 text-success' : 'border-warn/40 text-warn'} ${backend.busy ? 'animate-pulse' : ''}`}>
+          <span title="Every client name is a real PIF-portfolio company from Tasama's own PO ledger; every contract, figure, person and event is synthetic. Fabricated identifiers are prefixed DEMO-." className="hidden items-center gap-1 rounded-full border border-border/60 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground md:inline-flex"><FlaskConical size={10} /> Synthetic data</span>
+          <button type="button" onClick={() => go('settings', undefined, 'connections')} title={backend.mode === 'server' ? `World in PostgreSQL · revision ${backend.rev}` : backend.reason ?? 'World in this browser'} className={`hidden items-center gap-1 rounded-full border px-2 py-1 font-mono text-[10px] uppercase tracking-wider md:inline-flex ${backend.mode === 'server' ? 'border-success/40 text-success' : 'border-warn/40 text-warn'} ${backend.busy ? 'animate-pulse' : ''}`}>
             {backend.mode === 'server' ? <Database size={10} /> : <HardDrive size={10} />} {backend.mode === 'server' ? 'PostgreSQL' : 'local'}
           </button></div>}
         user={<div className="relative z-[60]"><UserBadge name={persona.name} role={persona.role} initials={persona.initials} onClick={() => setPersonaOpen((o) => !o)} />
@@ -67,8 +70,9 @@ function Shell() {
       contextNav={<ContextNav items={items} value={section} chrome={chrome} />}>
       <MainPanel>
         {backend.notice ? <div className="mx-4 mt-3 flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"><span className="flex-1">{backend.notice}</span><button type="button" onClick={clearNotice} aria-label="Dismiss"><X size={12} /></button></div> : null}
-        <Screen />
+        <div className={director ? 'pb-56' : ''}><Screen /></div>
       </MainPanel>
+      <DirectorBar />
     </AppShell>
   );
 }
@@ -82,6 +86,7 @@ function Screen() {
     case 'documents': return <DocumentsScreen />;
     case 'close': return <CloseScreen />;
     case 'agents': return <AgentsScreen />;
+    case 'scenarios': return <ScenariosScreen />;
     case 'settings': return <SettingsScreen />;
     default: return <OverviewScreen />;
   }

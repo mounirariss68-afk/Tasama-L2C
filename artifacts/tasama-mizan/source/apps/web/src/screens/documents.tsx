@@ -7,7 +7,7 @@ import { CheckCircle2, FileUp, Loader2, Plug, XCircle } from 'lucide-react';
 import { PageColumns, PageContainer, PageMasthead, PageSection, Panel, StatRow, StatTile } from '@cognirise/atelier/layout';
 import { DemoBanner, DemoReference, OutputCard, ProvenanceChip, ProvenanceNote } from '@cognirise/atelier/archetypes';
 import { useApp } from '../app/state';
-import { Btn, Chip, KV, Table } from '../app/bits';
+import { Body, Btn, Chip, KV, Table } from '../app/bits';
 import { SAMPLE_DOCS, emulateCompletion, emulateJob, type SampleDoc } from '@mizan/domain/cognidocs';
 import { liveBase, pollLive, submitLive } from '../lib/cognidocs-live';
 import { date, dateTime, from10k, money } from '@mizan/domain/format';
@@ -53,7 +53,9 @@ export function DocumentsScreen() {
       <PageMasthead title="Documents" meta={`${world.jobs.length} parse jobs this session · ${completed.length} completed · CogniDocs ${cfg.mode === 'live' ? `live (${cfg.sandbox ? 'sandbox' : 'production'} key)` : 'simulated'}`}
         figures={<><Chip tone={cfg.mode === 'live' ? 'success' : 'warn'}><Plug size={10} /> {cfg.mode === 'live' ? 'Live' : 'Simulated'}</Chip><Chip>POST /documents → GET /jobs/{'{id}'}</Chip><Chip>money = integer ×10,000</Chip></>}
         actions={<Btn tone="ghost" small onClick={() => go('settings', undefined, 'cognidocs')}>Connection settings</Btn>} />
-      <PageContainer><DemoBanner kind={cfg.mode === 'live' ? 'verified' : 'simulated'}>{cfg.mode === 'live' ? 'Live mode: results below come from the CogniDocs deployment configured in Settings.' : 'Simulated mode: the built-in emulator returns the canonical CogniDocs envelope for the sample documents, with real status transitions. Switch to Live in Settings to parse your own PDFs.'}</DemoBanner></PageContainer>
+
+      <Body>
+        <div><DemoBanner kind={cfg.mode === 'live' ? 'verified' : 'simulated'}>{cfg.mode === 'live' ? 'Live mode: results below come from the CogniDocs deployment configured in Settings.' : 'Simulated mode: the built-in emulator returns the canonical CogniDocs envelope for the sample documents, with real status transitions. Switch to Live in Settings to parse your own PDFs.'}</DemoBanner></div>
 
       <PageSection label="Upload">
         <PageColumns aside={
@@ -100,6 +102,7 @@ export function DocumentsScreen() {
       </PageSection>
 
       {world.expenses.length ? <PageSection label="Rebillable expenses (from receipts)"><PageContainer><div className="grid gap-2 sm:grid-cols-3">{world.expenses.map((x) => <OutputCard key={x.id} title={x.description} format="Expense" destination={`Re-bill to ${world.clients.find((c) => c.id === x.clientId)?.short} on the next T&L invoice`} provenance={<ProvenanceChip kind="simulated" />} meta={money(x.amount)} />)}</div></PageContainer></PageSection> : null}
+      </Body>
     </>
   );
 }

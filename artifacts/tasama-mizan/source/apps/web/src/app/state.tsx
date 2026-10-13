@@ -11,20 +11,24 @@
  *             localStorage so a reload does not lose the demo.
  *
  * Browser-only state: who you are (persona), the client lens, navigation,
- * and the CogniDocs API key (never sent to the server's store).
+ * the CogniDocs API key (never sent to the server's store), and the Demo
+ * Director — the scenario being played, its step, and what the last step
+ * changed.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DunningStage, ParseJob, Settings, World } from '@mizan/domain/types';
-import { buildWorld } from '@mizan/domain/world';
+import { buildWorld, demoNow } from '@mizan/domain/world';
 import { applyAction, type Action, type ActionResult } from '@mizan/domain/actions';
 import { PERSONAS, personaById, type PersonaDef, type Section } from '@mizan/domain/personas';
 import { invoiceOf, lineOf } from '@mizan/domain/derive';
 import { SAMPLE_DOCS } from '@mizan/domain/cognidocs';
+import { SCENARIOS, scenarioByKey, type DirectorStep, type ScreenRef } from '@mizan/domain/scenarios';
 
 const LOCAL_WORLD = 'mizan-local-world-v4';
 const LOCAL_PERSONA = 'mizan-persona';
 const LOCAL_KEY = 'mizan-cognidocs-key';
 const POLL_MS = 4000;
+const AUTO_MS = 11000;
 
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
@@ -47,7 +51,18 @@ export type Backend = {
   busy: boolean;
 };
 
-export type ScenarioRun = { id: string; state: 'idle' | 'running' | 'complete'; log: string[] };
+/** One line of "what changed" after a Director step, with where to look. */
+export type Change = { key: string; label: string; screen: ScreenRef };
+
+export type Director = {
+  key: string; name: string; shape: string; steps: DirectorStep[];
+  /** -1 before the first step. */
+  index: number;
+  status: 'running' | 'done';
+  busy: boolean; auto: boolean;
+  result: string | null; error: string | null;
+  changes: Change[];
+};
 
 export type Actions = {
   releaseInvoice: (id: string) => Promise<unknown>;
@@ -81,23 +96,24 @@ type Ctx = {
   world: World;
   backend: Backend; clearNotice: () => void;
   persona: PersonaDef; setPersona: (id: string) => void;
-  section: Section; go: (s: Section, focus?: string, tab?: string) => void; focus: string | null; setFocus: (f: string | null) => void; tab: string | null;
+  section: Section; go: (s: Section, focus?: string, tab?: string) => void; open: (ref: ScreenRef) => void; focus: string | null; setFocus: (f: string | null) => void; tab: string | null;
   clientLens: string | null; setClientLens: (id: string | null) => void;
-  closePeriodContext: string; setClosePeriodContext: (period: string) => void;
   settings: Settings; setSettings: (s: Partial<Settings>) => void; setCogniDocs: (c: Partial<Settings['cognidocs']>) => void;
   apiKey: string; setApiKey: (k: string) => void;
   nav: Section[];
   dispatch: (action: Action) => Promise<ActionResult>;
   confirmAssistantAction: (token: string) => Promise<{ created?: string; count?: number }>;
   actions: Actions;
-  scenarios: Record<string, ScenarioRun>; runScenario: (id: string) => void; reset: () => void;
+  director: Director | null; startScenario: (key: string) => void; stepScenario: (dir: 1 | -1) => Promise<void>; stopScenario: () => void; setAuto: (b: boolean) => void;
+  /** Record ids the Director touched in the last step — screens may highlight them. */
+  highlight: Set<string>;
+  reset: () => Promise<void>;
 };
 
 const AppContext = createContext<Ctx | null>(null);
 export const useApp = () => { const c = useContext(AppContext); if (!c) throw new Error('useApp outside AppState'); return c; };
 
 const nowIso = () => new Date().toISOString();
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
@@ -111,6 +127,36 @@ function loadLocalWorld(): World | null {
   try { const w = JSON.parse(raw) as World; return w && Array.isArray(w.invoices) && w.settings && w.flags ? w : null; } catch { return null; }
 }
 
+/** What a Director step changed, in the words of the records: diffed, not narrated. */
+function diffWorlds(a: World, b: World): Change[] {
+  const out: Change[] = [];
+  const invA = new Map(a.invoices.map((i) => [i.id, i]));
+  for (const i of b.invoices) {
+    const p = invA.get(i.id);
+    if (!p) out.push({ key: `inv+${i.id}`, label: `${i.id} drafted — ${i.currency} ${i.gross.toLocaleString('en-US')}`, screen: { section: 'inbox', focus: `rel:${i.id}` } });
+    else if (p.status !== i.status || p.zatca !== i.zatca) out.push({ key: `inv~${i.id}`, label: `${i.id} → ${i.status}${i.zatca !== p.zatca ? ` · ZATCA ${i.zatca}` : ''}${i.erpRef && !p.erpRef ? ` · ${i.erpRef}` : ''}`, screen: { section: 'l2c', tab: 'collections' } });
+  }
+  const evA = new Map(a.events.map((e) => [e.id, e]));
+  for (const e of b.events) { const p = evA.get(e.id); if (p && p.coc !== e.coc) out.push({ key: `ev~${e.id}`, label: `${e.label.slice(0, 48)} — CoC ${e.coc}`, screen: { section: 'l2c', tab: 'billing' } }); }
+  const rcA = new Map(a.receipts.map((r) => [r.id, r]));
+  for (const r of b.receipts) { const p = rcA.get(r.id); if (!p) out.push({ key: `rc+${r.id}`, label: `${r.id} receipt ${r.status} — SAR ${r.amount.toLocaleString('en-US')}`, screen: { section: 'inbox', focus: `cash:${r.id}` } }); else if (p.status !== r.status) out.push({ key: `rc~${r.id}`, label: `${r.id} → ${r.status}`, screen: { section: 'close', tab: 'bank' } }); }
+  const jeA = new Map(a.journals.map((j) => [j.id, j]));
+  for (const j of b.journals) { const p = jeA.get(j.id); if (p && p.status !== j.status) out.push({ key: `je~${j.id}`, label: `${j.id} ${j.kind} → ${j.status}${j.erpRef ? ` (${j.erpRef})` : ''}`, screen: { section: 'close', tab: 'journals' } }); }
+  const viA = new Map(a.vendorInvoices.map((v) => [v.id, v]));
+  for (const v of b.vendorInvoices) { const p = viA.get(v.id); if (!p) out.push({ key: `vi+${v.id}`, label: `${v.vendorName} ${v.invoiceRef} — ${v.matchStatus}`, screen: { section: 'inbox', focus: `vend:${v.id}` } }); else if (p.matchStatus !== v.matchStatus) out.push({ key: `vi~${v.id}`, label: `${v.vendorName} ${v.invoiceRef} → ${v.matchStatus}`, screen: { section: 'inbox' } }); }
+  const jobA = new Set(a.jobs.map((j) => j.id));
+  for (const j of b.jobs) if (!jobA.has(j.id)) out.push({ key: `job+${j.id}`, label: `CogniDocs job ${j.fileName} — ${j.routedTo ?? j.status}`, screen: { section: 'documents', focus: j.id } });
+  const baA = new Map(a.bankAccounts.map((x) => [x.id, x]));
+  for (const x of b.bankAccounts) { const p = baA.get(x.id); if (p && p.signedOff !== x.signedOff) out.push({ key: `ba~${x.id}`, label: `${x.bank} reconciliation signed off`, screen: { section: 'close', tab: 'bank' } }); }
+  const fA = new Map(a.findings.map((f) => [f.id, f]));
+  for (const f of b.findings) { const p = fA.get(f.id); if (p && !p.acknowledged && f.acknowledged) out.push({ key: `f~${f.id}`, label: `Finding ${f.kind} resolved${f.resolvedBy ? ` by ${f.resolvedBy}` : ''}`, screen: { section: 'agents', tab: 'trail' } }); }
+  if (a.flags.reforecastAccepted !== b.flags.reforecastAccepted) out.push({ key: 'fl-refc', label: 'Reforecast accepted — FY2026 forecast re-cut', screen: { section: 'close', tab: 'budget' } });
+  if (a.flags.periodClosed !== b.flags.periodClosed) out.push({ key: 'fl-close', label: `${b.closingPeriod} closed`, screen: { section: 'close', tab: 'checklist' } });
+  const trail = b.trail.length - a.trail.length;
+  if (trail > 0) out.push({ key: 'trail', label: `trail +${trail}`, screen: { section: 'agents', tab: 'trail' } });
+  return out;
+}
+
 export function AppState({ children }: { children: ReactNode }) {
   const served = typeof location !== 'undefined' && location.protocol !== 'file:';
   const [world, setWorldState] = useState<World>(() => (served ? buildWorld() : loadLocalWorld() ?? buildWorld()));
@@ -121,16 +167,17 @@ export function AppState({ children }: { children: ReactNode }) {
   const inFlight = useRef(0);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
 
-  const [personaId, setPersonaIdState] = useState(() => lsGet(LOCAL_PERSONA) ?? 'faisal');
+  const [personaId, setPersonaIdState] = useState(() => { const s = lsGet(LOCAL_PERSONA); return s && PERSONAS.some((p) => p.id === s) ? s : 'faisal'; });
   const personaRef = useRef(personaId);
   const [apiKey, setApiKeyState] = useState(() => lsGet(LOCAL_KEY) ?? '');
   const [section, setSection] = useState<Section>('overview');
   const [focus, setFocus] = useState<string | null>(null);
   const [tab, setTab] = useState<string | null>(null);
   const [clientLens, setClientLens] = useState<string | null>(null);
-  const [closePeriodContext, setClosePeriodContext] = useState(world.closingPeriod);
-  const [scenarios, setScenarios] = useState<Record<string, ScenarioRun>>({});
-  const scenarioToken = useRef(0);
+  const [director, setDirector] = useState<Director | null>(null);
+  const directorRef = useRef<Director | null>(null);
+  const [highlight, setHighlight] = useState<Set<string>>(new Set());
+  const autoTimer = useRef<number | null>(null);
 
   const persona = personaById(personaId);
   const nav = persona.nav;
@@ -196,7 +243,7 @@ export function AppState({ children }: { children: ReactNode }) {
           setWorld(r.world, r.rev);
           return { world: r.world, created: r.created, count: r.count, error: r.error };
         }
-        const result = applyAction(worldRef.current, action, { personaId: personaRef.current, now: nowIso() });
+        const result = applyAction(worldRef.current, action, { personaId: personaRef.current, now: demoNow(worldRef.current) });
         if (!result.error) setWorld(result.world);
         return result;
       } catch (e) {
@@ -212,18 +259,15 @@ export function AppState({ children }: { children: ReactNode }) {
   }, [setWorld]);
 
   const confirmAssistantAction = useCallback(async (token: string) => {
-    if (modeRef.current !== 'server') throw new Error('Claude actions require the connected server, not a browser-only world.');
+    if (modeRef.current !== 'server') throw new Error('Muhasib actions require the connected server, not a browser-only world.');
     const run = async () => {
-      inFlight.current++; setBackend(b => ({ ...b, busy: true }));
+      inFlight.current++; setBackend((b) => ({ ...b, busy: true }));
       try {
-        const result = await api<{ world: World; rev: number; created?: string; count?: number }>('/api/assistant/confirm', {
-          method: 'POST', body: JSON.stringify({ token, personaId: personaRef.current }),
-        });
+        const result = await api<{ world: World; rev: number; created?: string; count?: number }>('/api/assistant/confirm', { method: 'POST', body: JSON.stringify({ token, personaId: personaRef.current }) });
         setWorld(result.world, result.rev);
         return { created: result.created, count: result.count };
       } finally {
-        inFlight.current--;
-        if (!inFlight.current) setBackend(b => ({ ...b, busy: false }));
+        inFlight.current--; if (!inFlight.current) setBackend((b) => ({ ...b, busy: false }));
       }
     };
     const pending = queue.current.then(run, run);
@@ -263,83 +307,77 @@ export function AppState({ children }: { children: ReactNode }) {
   const setPersona = useCallback((id: string) => { personaRef.current = id; setPersonaIdState(id); lsSet(LOCAL_PERSONA, id); }, []);
   const setApiKey = useCallback((k: string) => { setApiKeyState(k); if (k) lsSet(LOCAL_KEY, k); else lsDel(LOCAL_KEY); }, []);
   const go = useCallback((s: Section, f?: string, t?: string) => { setSection(s); setFocus(f ?? null); setTab(t ?? null); }, []);
+  const open = useCallback((ref: ScreenRef) => { if (ref.clientLens !== undefined) setClientLens(ref.clientLens); setSection(ref.section); setFocus(ref.focus ?? null); setTab(ref.tab ?? null); }, []);
   const setSettings = useCallback((patch: Partial<Settings>) => { void dispatch({ type: 'updateSettings', patch }); }, [dispatch]);
   const setCogniDocs = useCallback((c: Partial<Settings['cognidocs']>) => { void dispatch({ type: 'updateSettings', patch: { cognidocs: c } }); }, [dispatch]);
   const clearNotice = useCallback(() => setBackend((b) => ({ ...b, notice: null })), []);
 
-  /* ------------------------------------------------------ scenarios: sequences of actions with narration */
-  const runScenario = useCallback((id: string) => {
-    const token = ++scenarioToken.current;
-    const alive = () => scenarioToken.current === token;
-    const log = (msg: string) => { if (alive()) setScenarios((s) => ({ ...s, [id]: { id, state: 'running', log: [...(s[id]?.log ?? []), msg] } })); };
-    const done = () => { if (alive()) setScenarios((s) => ({ ...s, [id]: { ...s[id], state: 'complete' } })); };
-    const step = async (ms: number, fn: () => void | Promise<void>) => { await sleep(ms); if (!alive()) throw new Error('cancelled'); await fn(); };
-    const draftsOf = (pred: (w: World) => string[]) => pred(worldRef.current);
-    const simulatedJob = (sampleId: string, parserPath: string, size: number, confidence: number): ParseJob => {
-      const sample = SAMPLE_DOCS.find((s) => s.id === sampleId)!;
-      return { id: `DEMO-JOB-sc${Date.now().toString(16).slice(-4)}`, declaredType: sample.declaredType, detectedType: sample.declaredType, status: 'completed', fileName: sample.fileName, mimeType: 'application/pdf', fileSizeBytes: size, startedAt: nowIso(), parserPath, confidence, error: null, aiPromptTokens: 0, aiCompletionTokens: 0, aiCostAmount10k: 0, sandbox: true, result: sample.result(), createdAt: nowIso(), completedAt: nowIso(), mode: 'simulated' };
-    };
-    setScenarios((s) => ({ ...s, [id]: { id, state: 'running', log: [] } }));
-    (async () => {
-      switch (id) {
-        case 'billing-run': {
-          await step(300, async () => { const n = await actions.runBillingRun(); log(`Fatoora drafted ${n} September invoices from the schedule; withheld the KSIA UAT milestone (CoC) and REDC September (no PO cover).`); go('inbox'); });
-          await step(1900, () => { log('Head of Revenue & Treasury releases the drafts — each one is a decision in the inbox. Releasing them now…'); });
-          await step(1000, async () => { for (const x of draftsOf((w) => w.invoices.filter((i) => i.status === 'draft').map((i) => i.id))) await actions.releaseInvoice(x); log('Posted through the ERP connector; ZATCA cleared all of them. The waterfall on Overview moves from evidenced to invoiced.'); });
-          await step(1600, () => { go('overview'); done(); });
-          break;
-        }
-        case 'missed-invoice': {
-          await step(300, () => { log('Hares: GPLC AMS August — delivered, CoC signed 3 Sep, no invoice. 36 days past due.'); go('inbox', 'catch:DEMO-GPLC-PO-011-L4/2026-08'); });
-          let inv: string | null = null;
-          await step(1900, async () => { inv = await actions.draftForEvent('DEMO-GPLC-PO-011-L4/2026-08'); log(`Fatoora drafted the catch-up invoice ${inv ?? ''}; the finding is resolved against it.`); if (inv) go('inbox', `rel:${inv}`); });
-          await step(1800, async () => { if (inv) await actions.releaseInvoice(inv); log('Released and cleared. Unbilled revenue drops by SAR 52,500; the September forecast does not change — the revenue was always recognised; the cash was not asked for.'); });
-          await step(1500, () => { go('overview'); done(); });
-          break;
-        }
-        case 'coc-escalation': {
-          await step(300, () => { log('Shahid: CoC for KSIA D2.13 UAT sent 24 Sep, reminded 29 Sep and 3 Oct. Cadence exhausted; escalation prepared for the KAM.'); go('inbox', 'coc:DEMO-KSIA-PO-00000611-L1/D2.13'); });
-          await step(2100, async () => { await actions.escalateCoc('DEMO-KSIA-PO-00000611-L1/D2.13'); log('Majed approves the escalation; Shahid sends it to the KSIA sponsor with the UAT exit report and the reminder history.'); });
-          await step(1800, async () => { await actions.signCoc('DEMO-KSIA-PO-00000611-L1/D2.13'); log('Simulated: the sponsor signs the CoC the same afternoon. SAR 611,800 moves from blocked to due.'); });
-          await step(1200, async () => { const inv = await actions.draftForEvent('DEMO-KSIA-PO-00000611-L1/D2.13'); log(`Fatoora drafts ${inv ?? 'the milestone invoice'} for release.`); if (inv) go('inbox', `rel:${inv}`); });
-          await step(1200, () => done());
-          break;
-        }
-        case 'duplicate-vendor': {
-          await step(300, () => { log('Upload simulated: Oracle ORC-2026-00917 submitted a second time.'); go('documents'); });
-          await step(1200, async () => {
-            const job = simulatedJob('oracle-dup', 'vendor_template', 48_211, 98);
-            await actions.addJob(job); await actions.routeJob(job);
-            log('CogniDocs: invoices are unique on (vendorKey, normalizedInvoiceRef) — the job resolves to the existing canonical invoice. Mawrid refuses to post and says why. Nothing reaches AP.');
-          });
-          await step(2100, () => done());
-          break;
-        }
-        case 'cash-day': {
-          await step(300, () => { log('Upload simulated: Al Rajhi collections statement, September.'); go('documents'); });
-          await step(1200, async () => {
-            const job = simulatedJob('rajhi-statement', 'template_match:rajhi-corp-v2', 131_072, 97);
-            await actions.addJob(job); await actions.routeJob(job);
-            log('Tasweya reads the statement: the lines already on file are recognised, nothing is duplicated. Two proposals wait: KSIA (tolerance) and REDC (amount + client).');
-          });
-          await step(1900, async () => { for (const x of draftsOf((w) => w.receipts.filter((r) => r.status === 'proposed').map((r) => r.id))) await actions.applyReceipt(x); log('Head of Revenue & Treasury applies both. Receipts posted through the connector; the bank charge journal remains for the Accounting Manager.'); go('close', undefined, 'bank'); });
-          await step(1800, () => done());
-          break;
-        }
-        case 'close-day': {
-          await step(300, () => { log('Iqfal re-derives the checklist from the data: what is done is what the ledger says is done.'); go('close', undefined, 'checklist'); });
-          await step(1500, async () => { for (const x of draftsOf((w) => w.journals.filter((j) => j.status === 'proposed').map((j) => j.id))) await actions.approveJournal(x); log('Accounting Manager approves the six proposed journals: unbilled accrual (computed at this moment), deferred release, vendor accrual, bank charges, FX, the Salwan debit note.'); });
-          await step(1800, async () => { go('close', undefined, 'budget'); log('Mizaniya: 504 is +SAR 171k against September budget — +611.8k milestone timing, −280k PO not received, −160k expired cover. FP&A accepts the reforecast.'); await actions.acceptReforecast(); });
-          await step(1800, () => { log('What still blocks the close is named, not hidden: cash proposals, bank sign-offs, the ZATCA rejection, the vendor invoice without a PO. Each is an inbox item with an owner.'); go('close', undefined, 'checklist'); done(); });
+  /* ------------------------------------------------------ the Demo Director */
+  const patchDirector = useCallback((fn: (d: Director) => Director) => { setDirector((d) => { if (!d) return d; const n = fn(d); directorRef.current = n; return n; }); }, []);
+
+  /** Run one step's action against the live world; return what changed. */
+  const runStep = useCallback(async (step: DirectorStep): Promise<{ result: string; error: string | null; changes: Change[] }> => {
+    const before = worldRef.current;
+    let error: string | null = null; let result = 'Shown';
+    const a = step.action;
+    const check = (r: ActionResult) => { if (r.error) error = r.error; return r; };
+    try {
+      switch (a.kind) {
+        case 'show': break;
+        case 'action': { const r = check(await dispatch(a.action)); result = r.error ? 'Refused' : r.created ? `Created ${r.created}` : r.count !== undefined ? `${r.count} record(s)` : 'Applied'; break; }
+        case 'releaseAllDrafts': { const ids = worldRef.current.invoices.filter((i) => i.status === 'draft').map((i) => i.id); for (const id of ids) check(await dispatch({ type: 'releaseInvoice', id })); result = `${ids.length} invoice(s) released`; break; }
+        case 'releaseForEvent': { const inv = worldRef.current.invoices.find((i) => i.status === 'draft' && i.eventIds.includes(a.eventId)); if (!inv) { error = 'No draft invoice for that event'; break; } check(await dispatch({ type: 'releaseInvoice', id: inv.id })); result = `${inv.id} released`; break; }
+        case 'applyAllProposed': { const ids = worldRef.current.receipts.filter((r) => r.status === 'proposed').map((r) => r.id); for (const id of ids) check(await dispatch({ type: 'applyReceipt', id })); result = `${ids.length} receipt(s) applied`; break; }
+        case 'approveAllJournals': { const ids = worldRef.current.journals.filter((j) => j.status === 'proposed').map((j) => j.id); for (const id of ids) check(await dispatch({ type: 'approveJournal', id })); result = `${ids.length} journal(s) posted`; break; }
+        case 'upload': {
+          const sample = SAMPLE_DOCS.find((s) => s.id === a.sample); if (!sample) { error = `No sample ${a.sample}`; break; }
+          const job: ParseJob = { id: `DEMO-JOB-${Date.now().toString(16).slice(-6)}`, declaredType: sample.declaredType, detectedType: sample.declaredType, status: 'completed', fileName: sample.fileName, mimeType: 'application/pdf', fileSizeBytes: 48_211 + sample.id.length * 1000, startedAt: nowIso(), parserPath: sample.id.includes('statement') ? 'template_match' : 'vendor_template', confidence: 97, error: null, aiPromptTokens: 0, aiCompletionTokens: 0, aiCostAmount10k: 0, sandbox: true, result: sample.result(), createdAt: nowIso(), completedAt: nowIso(), mode: 'simulated' };
+          check(await dispatch({ type: 'addJob', job })); check(await dispatch({ type: 'routeJob', jobId: job.id }));
+          const routed = worldRef.current.jobs.find((j) => j.id === job.id)?.routedTo; result = routed ?? 'Routed';
+          setFocus(job.id);
           break;
         }
       }
-    })().catch((e: Error) => { if (e.message !== 'cancelled') log(`Scenario stopped: ${e.message}`); });
-  }, [actions, go]);
+    } catch (e) { error = (e as Error).message; }
+    return { result, error, changes: diffWorlds(before, worldRef.current) };
+  }, [dispatch]);
 
-  const reset = useCallback(() => {
-    scenarioToken.current++;
-    setScenarios({}); setClientLens(null); setFocus(null); setSection(nav[0]);
+  const showStep = useCallback((step: DirectorStep) => {
+    if (step.persona && step.persona !== personaRef.current) setPersona(step.persona);
+    open(step.screen);
+  }, [open, setPersona]);
+
+  const startScenario = useCallback((key: string) => {
+    const sc = scenarioByKey(key); if (!sc) return;
+    const why = sc.blocked(worldRef.current);
+    const d: Director = { key: sc.key, name: sc.name, shape: sc.shape, steps: sc.steps, index: -1, status: 'running', busy: false, auto: false, result: null, error: why, changes: [] };
+    directorRef.current = d; setDirector(d); setHighlight(new Set());
+  }, []);
+
+  const stepScenario = useCallback(async (dir: 1 | -1) => {
+    const d = directorRef.current; if (!d || d.busy) return;
+    const next = d.index + dir; if (next < 0 || next >= d.steps.length) return;
+    const step = d.steps[next];
+    if (dir === -1) { patchDirector((x) => ({ ...x, index: next, result: 'Showing again (back)', error: null, changes: [], status: 'running' })); showStep(step); return; }
+    patchDirector((x) => ({ ...x, index: next, busy: true, error: null, result: null, changes: [] }));
+    showStep(step);
+    const r = await runStep(step);
+    // the screen may depend on what the step created (a drafted invoice, a job)
+    if (step.action.kind !== 'show' && step.screen.section === 'inbox' && !step.screen.focus) { const created = r.changes.find((c) => c.key.startsWith('inv+')); if (created) setFocus(created.screen.focus ?? null); }
+    setHighlight(new Set(r.changes.map((c) => c.key.replace(/^[a-z]+[+~]/, ''))));
+    patchDirector((x) => ({ ...x, busy: false, result: r.result, error: r.error, changes: r.changes, status: next >= x.steps.length - 1 ? 'done' : 'running' }));
+  }, [patchDirector, runStep, showStep]);
+
+  const stopScenario = useCallback(() => { directorRef.current = null; setDirector(null); setHighlight(new Set()); if (autoTimer.current) window.clearTimeout(autoTimer.current); }, []);
+  const setAuto = useCallback((b: boolean) => patchDirector((d) => ({ ...d, auto: b })), [patchDirector]);
+  useEffect(() => {
+    if (!director?.auto || director.busy || director.status !== 'running' || director.error) return;
+    autoTimer.current = window.setTimeout(() => { void stepScenario(1); }, AUTO_MS);
+    return () => { if (autoTimer.current) window.clearTimeout(autoTimer.current); };
+  }, [director?.auto, director?.busy, director?.index, director?.status, director?.error, stepScenario]);
+
+  const reset = useCallback(async () => {
+    stopScenario(); setClientLens(null); setFocus(null);
     const run = async () => {
       inFlight.current++;
       try {
@@ -350,12 +388,13 @@ export function AppState({ children }: { children: ReactNode }) {
     };
     const p = queue.current.then(run, run);
     queue.current = p.then(() => undefined, () => undefined);
-  }, [nav, setWorld]);
+    await p;
+  }, [setWorld, stopScenario]);
 
   const value: Ctx = {
-    world, backend, clearNotice, persona, setPersona, section, go, focus, setFocus, tab, clientLens, setClientLens, closePeriodContext, setClosePeriodContext,
+    world, backend, clearNotice, persona, setPersona, section, go, open, focus, setFocus, tab, clientLens, setClientLens,
     settings: world.settings, setSettings, setCogniDocs, apiKey, setApiKey,
-    nav, dispatch, confirmAssistantAction, actions, scenarios, runScenario, reset,
+    nav, dispatch, confirmAssistantAction, actions, director, startScenario, stepScenario, stopScenario, setAuto, highlight, reset,
   };
   if (backend.mode === 'connecting') return <Connecting />;
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
@@ -369,4 +408,4 @@ function Connecting() {
   );
 }
 
-export { PERSONAS, lineOf, invoiceOf };
+export { PERSONAS, SCENARIOS, lineOf, invoiceOf };

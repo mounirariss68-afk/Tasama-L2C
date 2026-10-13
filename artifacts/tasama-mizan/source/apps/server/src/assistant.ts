@@ -5,7 +5,6 @@ import { arOpen, bankRec, budgetTable, cashStats, closeSummary, eventStatus, inb
 import { PERSONAS, type PersonaDef } from '@mizan/domain/personas';
 import type { World } from '@mizan/domain/types';
 import { needsLanguageCorrection, responseLanguage } from './assistant-language';
-import { closeOverview, getCloseInstance, validPeriod, CLOSE_FINANCE, type CloseCommand } from '@mizan/domain/close';
 
 const MODEL = 'claude-sonnet-5';
 export const claudeConfigured = () => Boolean(process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL && process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY);
@@ -15,28 +14,20 @@ const collectionNames = ['clients', 'contracts', 'pos', 'events', 'invoices', 'r
 const actionNames = ['releaseInvoice', 'rejectDraft', 'draftForEvent', 'runBillingRun', 'fixZatca', 'sendCoc', 'escalateCoc', 'approveDunning', 'holdDunning', 'applyReceipt', 'rejectReceipt', 'approveVendor', 'rejectVendor', 'approveJournal', 'signOffBankRec', 'acknowledgeFinding', 'confirmSchedule', 'acceptReforecast', 'closePeriod'] as const;
 
 const tools: Anthropic.Tool[] = [
-  { name: 'read_close_workspace', description: 'Read the exact 24-procedure Tasama monthly close workspace: readiness, due dates, current evidence versions, departmental input reviews, accounting job outcomes, exceptions and report/sign-off status. Cite period and procedure numbers. Source-policy automation is NOT actual platform execution. Payroll has aggregate totals only.', input_schema: { type: 'object', properties: { period: { type: 'string' }, procedure: { type: 'integer', minimum: 1, maximum: 24 } } } },
-  { name: 'propose_close_action', description: 'Prepare an in-app reminder/clarification, return a submitted workpaper for correction, or delegate preparer/reviewer, for explicit human confirmation. Never accepts evidence, waives errors or executes ERP jobs. The server checks authority and versions. A reminder is in-app only, not email.', input_schema: { type: 'object', properties: { period: { type: 'string' }, procedure: { type: 'integer', minimum: 1, maximum: 24 }, change: { type: 'string', enum: ['remind', 'return', 'delegate'] }, reason: { type: 'string' }, owner: { type: 'string' }, reviewer: { type: 'string' } }, required: ['procedure', 'change', 'reason'] } },
+  { name: 'read_close_checklist', description: "Read Tasama's 24 monthly closing procedures for the closing period with their status derived from the data: number, area, procedure, owner, agent, Tasama's deadline, Tasama's own automation column, Mizan coverage (derived / department input / ERP job read back / outside Mizan), status (done, in progress, blocked, not started, external), blocker and evidence. Cite procedure numbers (P6, P17 …). 'external' means Fixed Assets or Leases: outside Mizan, never claim they are done.", input_schema: { type: 'object', properties: { procedure: { type: 'integer', minimum: 1, maximum: 24 } } } },
   { name: 'financial_summary', description: 'Read current exact domain-derived financial totals, budget, bank reconciliations and close blockers. Amounts are in SAR unless the record says otherwise.', input_schema: { type: 'object', properties: {} } },
   { name: 'read_records', description: 'Read current database records, or inbox items with approval permissions. Search matches record contents; use exact IDs in proposals. Pagination is supported.', input_schema: { type: 'object', properties: { collection: { type: 'string', enum: [...collectionNames, 'inbox'] }, search: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, required: ['collection'] } },
   { name: 'propose_action', description: 'Prepare a supported action for explicit human confirmation. Does NOT execute it. For inbox decisions use the item reference as recordId. Invoice IDs for invoice actions; event IDs for billing/CoC; bank account IDs for sign-off; PO IDs for schedule. Give a clear summary and reason for rejection/hold. Never claim a proposal has already been applied.', input_schema: { type: 'object', properties: { type: { type: 'string', enum: [...actionNames] }, recordId: { type: 'string' }, summary: { type: 'string' }, reason: { type: 'string' }, vatNo: { type: 'string' } }, required: ['type', 'summary'] } },
 ];
 
 function authorized(world: World, action: Action, persona: PersonaDef) {
-  if (action.type === 'closeWorkspace') {
-    const c = action.command;
-    if (c.kind !== 'remind' && c.kind !== 'delegate' && !(c.kind === 'review' && c.decision === 'return')) throw new Error('This close change requires the workpaper UI and is not supported through Muhasib.');
-    const result = applyAction(world, action, { personaId: persona.id, now: new Date().toISOString() });
-    if (result.error) throw new Error(result.error);
-    return;
-  }
   if (action.type === 'runBillingRun') {
     if (!['noura', 'faisal'].includes(persona.id)) throw new Error('Only CFO or Head of Revenue & Treasury may run billing.');
     return;
   }
   if (action.type === 'closePeriod') {
     if (persona.id !== 'noura') throw new Error('Only CFO may close the period.');
-    if (!closeOverview(world).ready) throw new Error('Close is blocked: complete and review all 24-procedure requirements and generate a current pack first.');
+    if (!closeSummary(world).readyToClose) throw new Error('Close is blocked: procedures 1–22 must be done (Fixed Assets and Leases sit outside Mizan) before the period can be closed.');
     return;
   }
   if (action.type === 'draftForEvent') {
@@ -108,17 +99,13 @@ export function validateProposedAction(world: World, input: Record<string, unkno
 export function describeProposedAction(world: World, action: Action, personaId: string) {
   const result = applyAction(world, action, { personaId, now: new Date().toISOString() });
   if (result.error) throw new Error(result.error);
-  if (action.type === 'closeWorkspace') {
-    const c = action.command;
-    return `After confirmation: ${c.kind === 'review' ? 'return submitted workpaper' : c.kind === 'delegate' ? 'reassign preparer and reviewer' : 'record an in-app reminder / clarification'} for ${c.period}, P${'procedure' in c ? c.procedure : ''}. ${c.kind === 'remind' ? c.note : 'reason' in c ? c.reason : ''} No external ERP job or email will run.`;
-  }
   if (action.type === 'runBillingRun') return `Draft ${result.count ?? 0} invoices for ALL currently due billing events in ${world.closingPeriod}. No invoices will be released or posted.`;
   const effects = result.world.trail.slice(world.trail.length).map(entry => entry.summary);
   return `Expected result after confirmation: ${effects.join('; ') || action.type}`;
 }
 
 export async function chat(body: unknown, world: World) {
-  const input = body as { messages?: unknown; personaId?: unknown; clientId?: unknown; closePeriod?: unknown; section?: unknown; procedureContext?: unknown };
+  const input = body as { messages?: unknown; personaId?: unknown; clientId?: unknown; section?: unknown; focus?: unknown };
   const persona = PERSONAS.find(p => p.id === input?.personaId);
   if (!persona) throw new Error('Choose a valid demo persona.');
   if (!Array.isArray(input.messages) || input.messages.length < 1 || input.messages.length > 12) throw new Error('Send between 1 and 12 conversation messages.');
@@ -128,8 +115,7 @@ export async function chat(body: unknown, world: World) {
   });
   if (messages.at(-1)?.role !== 'user') throw new Error('The last message must be a user request.');
   const language = responseLanguage(String(messages.at(-1)!.content));
-  const closePeriod = validPeriod(input.closePeriod) ? input.closePeriod : world.closingPeriod;
-  const languageRule = `MANDATORY RESPONSE LANGUAGE FOR THIS REQUEST: ${language}. The latest user question determines the language. All explanations must be in ${language}, even if previous assistant messages, persona names or record contents use another language. Identify yourself as Muhasib, not as the underlying model provider. Selected close period is ${closePeriod}; active section ${String(input.section ?? 'unknown')}. For monthly-close questions, read_close_workspace is authoritative, not the old 17 supporting controls. All 24 requirements must be independently reviewed; procedures 6–24 cannot proceed until inputs 1–5 are accepted. Purchasing CoCs are inbound supplier receipts, not client delivery CoCs. Deadlines use confirmed weekends/holidays and real payroll-payment/input-acceptance anchors. A source-policy Full automation label never proves Mizan executed an ERP job. External job results, transfer/posting references, leases/payroll/assets and statement imports are manually recorded workpapers. Local demo sign-off and external ERP closure confirmation are different. Cite P<number>, period and evidence reference in close answers. Never claim an AR–GL tie based on the same invoice source is independent.`;
+  const languageRule = `MANDATORY RESPONSE LANGUAGE FOR THIS REQUEST: ${language}. The latest user question determines the language. All explanations must be in ${language}, even if previous assistant messages, persona names or record contents use another language. Identify yourself as Muhasib, not as the underlying model provider. Active section: ${String(input.section ?? 'unknown')}${typeof input.focus === 'string' ? `, focused record ${input.focus}` : ''}. For monthly-close questions read_close_checklist is authoritative: Tasama's own 24 procedures with statuses derived from the data by Iqfal. Procedures 12–16 (Fixed Assets, Leases) are outside Mizan — report them as such, never as done. Inputs 1–5 come from departments; Finance procedures 6–24 wait for them.`;
   const anthropic = new Anthropic({
     apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
     baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
@@ -157,40 +143,16 @@ export async function chat(body: unknown, world: World) {
       try {
         const args = call.input as Record<string, unknown>;
         let result: unknown;
-        if (call.name === 'read_close_workspace') {
-          const period = args.period === undefined ? closePeriod : args.period;
-          if (!validPeriod(period)) throw new Error('Use a valid YYYY-MM close period.');
-          if (!persona.nav.includes('close')) throw new Error('This persona has no close-workspace remit.');
-          const ov = closeOverview(world, period, persona.id);
-          const selected = args.procedure === undefined ? ov.procedures : ov.procedures.filter(p => p.number === args.procedure);
-          const procedures = selected.map(p => {
-            const authorizedPaper = CLOSE_FINANCE.includes(persona.id) || p.paper.owner === persona.id || p.paper.reviewer === persona.id;
-            return { number: p.number, title: p.title, sourceAutomation: p.automation, actualExecutionMode: p.coverage, status: p.status, due: p.due, overdue: p.overdue,
-              owner: p.paper.owner, reviewer: p.paper.reviewer, blockers: p.blockers, nativeEvidence: p.evidence,
-              ...(authorizedPaper ? { version: p.paper.version, state: p.paper.state, evidence: p.paper.values, receipts: p.paper.receipts, statements: p.paper.statements, reviewedBy: p.paper.reviewedBy, reviewNote: p.paper.reviewNote } : {}) };
-          });
-          result = { period, ready: ov.ready, blockers: ov.blockers, inputsReady: ov.inputsReady, procedures, exceptions: ov.exceptions, packCurrent: ov.packCurrent, localStatus: ov.instance.status, externalErpStatus: ov.instance.erpStatus, generatedPackRef: ov.instance.pack?.generatedAt };
-        } else if (call.name === 'propose_close_action') {
-          if (pending.length >= 3) throw new Error('At most three proposals per request.');
-          const period = args.period === undefined ? closePeriod : args.period;
-          if (!validPeriod(period) || !Number.isInteger(args.procedure)) throw new Error('A valid period and exact procedure number are required.');
-          const procedure = Number(args.procedure), paper = getCloseInstance(world, period).papers[String(procedure)];
-          if (!paper) throw new Error('Unknown procedure.');
-          if (typeof args.reason !== 'string' || args.reason.trim().length < 5) throw new Error('An explicit reminder, return or delegation reason is required.');
-          const base = { period, procedure, expectedVersion: paper.version };
-          const command: CloseCommand = args.change === 'remind' ? { ...base, kind: 'remind', note: args.reason }
-            : args.change === 'return' ? { ...base, kind: 'review', decision: 'return', reason: args.reason }
-            : args.change === 'delegate' && typeof args.owner === 'string' && typeof args.reviewer === 'string' ? { ...base, kind: 'delegate', owner: args.owner, reviewer: args.reviewer, reason: args.reason }
-            : (() => { throw new Error('Unsupported close change or missing owner/reviewer.'); })();
-          const action: Action = { type: 'closeWorkspace', command };
-          authorized(world, action, persona);
-          const proposal: Proposal = { token: randomUUID(), summary: describeProposedAction(world, action, persona.id), action, personaId: persona.id, rev: world.flags.rev, expires: Date.now() + 15 * 60 * 1000 };
-          pending.push(proposal);
-          result = { prepared: true, summary: proposal.summary, requiresHumanConfirmation: true, period, procedure };
+        if (call.name === 'read_close_checklist') {
+          if (!persona.nav.includes('close')) throw new Error('This persona has no close remit.');
+          const cs = closeSummary(world);
+          const selected = args.procedure === undefined ? cs.items : cs.items.filter(p => p.number === args.procedure);
+          result = { period: world.closingPeriod, closeDay: world.closeDay, readyToClose: cs.readyToClose, inputsDone: cs.inputsDone, done: cs.done, blocked: cs.blocked, outsideMizan: cs.external,
+            procedures: selected.map(p => ({ number: p.number, id: p.id, area: p.workstream, procedure: p.title, owner: p.owner, agent: p.agentId, tasamaDeadline: p.deadline, tasamaAutomationToday: p.tasamaAutomation, mizanCoverage: p.coverage, status: p.status, blocker: p.blocker, evidence: p.evidence })) };
         } else if (call.name === 'financial_summary') {
           result = persona.clients.length
             ? { asOf: world.asOf, closingPeriod: world.closingPeriod, clients: world.clients.filter(c => persona.clients.includes(c.id)), note: 'Global finance totals outside this persona remit.' }
-            : { asOf: world.asOf, closingPeriod: world.closingPeriod, unbilledSAR: unbilled(world), openARSAR: arOpen(world), overdue: overdue(world), cash: cashStats(world), close: closeOverview(world, closePeriod, persona.id), budget: budgetTable(world), banks: world.bankAccounts.map(a => ({ account: a, reconciliation: bankRec(world, a.id) })) };
+            : { asOf: world.asOf, closingPeriod: world.closingPeriod, unbilledSAR: unbilled(world), openARSAR: arOpen(world), overdue: overdue(world), cash: cashStats(world), close: closeSummary(world), budget: budgetTable(world), banks: world.bankAccounts.map(a => ({ account: a, reconciliation: bankRec(world, a.id) })) };
         } else if (call.name === 'read_records') {
           const collection = String(args.collection);
           if (![...collectionNames, 'inbox'].includes(collection as typeof collectionNames[number])) throw new Error('Unknown collection.');

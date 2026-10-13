@@ -9,3 +9,4 @@ export * from './personas';
 export * from './process';
 export * from './cognidocs';
 export * from './format';
+export * from './scenarios';

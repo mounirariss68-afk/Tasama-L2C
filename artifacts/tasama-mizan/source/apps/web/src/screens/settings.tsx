@@ -5,29 +5,22 @@
 import { useEffect, useState } from 'react';
 import { Database, HardDrive } from 'lucide-react';
 import { PageContainer, PageMasthead, PageSection, Panel, ThemeModeToggle } from '@cognirise/atelier/layout';
-import { DemoBanner, PersonaSwitcher, ProvenanceNote, ScenarioCard, ScenarioRunner, SettingsGroup, SettingsRow } from '@cognirise/atelier/archetypes';
+import { PersonaSwitcher, ProvenanceNote, SettingsGroup, SettingsRow } from '@cognirise/atelier/archetypes';
 import { useApp } from '../app/state';
-import { Btn, Chip, KV, Tabs } from '../app/bits';
+import { Body, Btn, Chip, KV, Tabs } from '../app/bits';
 import { PERSONAS } from '@mizan/domain/personas';
 import { ERP_LABEL } from '@mizan/domain/erp';
 import { money } from '@mizan/domain/format';
 
-const SCENARIOS = [
-  { id: 'billing-run', name: 'Month-end billing run', premise: 'Day 1 of the close: Fatoora drafts every due, evidenced September event; the Head of Revenue & Treasury releases them; ZATCA clears.', demonstrates: 'Watch the waterfall on Overview move from evidenced to invoiced, and the two withheld events stay named.' },
-  { id: 'missed-invoice', name: 'The invoice nobody raised', premise: 'Hares finds the GPLC AMS August event — delivered, CoC signed, never invoiced — the row that reads "To Invoice: Missed" in the tracker.', demonstrates: 'Detection → catch-up draft → release, in the trail. Unbilled drops; recognised revenue does not move, because it was always earned.' },
-  { id: 'coc-escalation', name: 'CoC stuck at KSIA', premise: 'Shahid\'s reminder cadence is exhausted on the UAT milestone; the escalation lands with the KAM, the sponsor signs, Fatoora drafts SAR 611,800.', demonstrates: 'The CoC gate — Tasama\'s own control — handled by an agent that chases and escalates, with a person approving each client contact.' },
-  { id: 'duplicate-vendor', name: 'Duplicate vendor invoice', premise: 'The Oracle licence invoice already matched in February is uploaded a second time.', demonstrates: 'CogniDocs resolves it to the canonical invoice; Mawrid refuses and says why. Nothing reaches AP. The refusal is the feature.' },
-  { id: 'cash-day', name: 'Cash day — statement upload', premise: 'The Al Rajhi collections statement arrives through CogniDocs. Tasweya recognises what is already on file, applies by reference, proposes the KSIA tolerance match and the unreferenced REDC credit.', demonstrates: 'Cash application and bank reconciliation from one upload; the two judgement calls go to a person.' },
-  { id: 'close-day', name: 'Close — Day 4 to Day 5', premise: 'Iqfal re-derives the checklist; the Accounting Manager approves six journals; Mizaniya\'s reforecast is accepted.', demonstrates: 'What still blocks the close is named with an owner, not hidden in a tick box.' },
-];
-
 export function SettingsScreen() {
-  const { persona, reset } = useApp();
+  const { persona, go } = useApp();
   return (
     <>
-      <PageMasthead title="Settings" meta={`Signed in as ${persona.name} — ${persona.role}`} actions={<Btn tone="ghost" small onClick={reset}>Reset the demo</Btn>} />
-      <PageContainer><DemoBanner>Personas are a switcher, not authentication. Amount limits are placeholders until Tasama's delegation of authority is supplied.</DemoBanner></PageContainer>
-      <Tabs storageKey="settings" tabs={[{ id: 'personas', label: 'Personas', body: () => <Personas /> }, { id: 'data', label: 'Data', body: () => <Data /> }, { id: 'erp', label: 'ERP', body: () => <Erp /> }, { id: 'cognidocs', label: 'CogniDocs', body: () => <CogniDocs /> }, { id: 'thresholds', label: 'Thresholds', body: () => <Thresholds /> }, { id: 'scenarios', label: 'Scenarios', body: () => <Scenarios /> }]} />
+      <PageMasthead title="Settings" meta={`Signed in as ${persona.name} — ${persona.role}`} actions={<Btn tone="ghost" small onClick={() => go('scenarios')}>Scenarios & reset</Btn>} />
+
+      <Body>
+        <Tabs storageKey="settings" tabs={[{ id: 'personas', label: 'Personas', body: () => <Personas /> }, { id: 'connections', label: 'Connections', body: () => <><Data /><Erp /><CogniDocs /></> }, { id: 'thresholds', label: 'Thresholds', body: () => <Thresholds /> }]} />
+      </Body>
     </>
   );
 }
@@ -60,7 +53,7 @@ function Data() {
           ['CogniDocs on the server', backend.cognidocsConfigured ? 'configured (COGNIDOCS_BASE_URL + COGNIDOCS_API_KEY)' : 'not configured'],
         ]} />
         {backend.reason ? <p className="mt-2 rounded-md border border-warn/40 bg-warn/10 p-2 text-xs text-warn">{backend.reason}</p> : null}
-        <div className="mt-3 flex items-center gap-2"><Btn tone="ghost" small onClick={reset}>Reset to the seeded world</Btn><span className="text-[11px] text-muted-foreground">{server ? 'Truncates every table and re-seeds from the deterministic generator (seed 20261006).' : 'Rebuilds the world from the deterministic generator.'}</span></div>
+        <div className="mt-3 flex items-center gap-2"><Btn tone="ghost" small onClick={() => void reset()}>Reset to the seeded world</Btn><span className="text-[11px] text-muted-foreground">{server ? 'Truncates every table and re-seeds from the deterministic generator (seed 20261006).' : 'Rebuilds the world from the deterministic generator.'}</span></div>
         <ProvenanceNote>Every action is applied by the same reducer on the server and written as one transaction: the rows it changed are upserted, nothing else is touched. The decision trail is a by-product of acting — there is no separate log to keep.</ProvenanceNote>
       </Panel>
     </PageSection>
@@ -137,21 +130,6 @@ function Thresholds() {
         </SettingsGroup>
         <SettingsGroup title="Appearance"><SettingsRow label="Theme" control={<ThemeModeToggle />} /></SettingsGroup>
         <ProvenanceNote>Current: tolerance {money(settings.cashTolerance)} · auto-dunning below {money(settings.autoDunningLimit)} · PO alert {settings.poConsumptionAlertPct}% · reminders +{settings.cocReminderDays.join(', +')}.</ProvenanceNote>
-      </Panel>
-    </PageSection>
-  );
-}
-
-function Scenarios() {
-  const { scenarios, runScenario, reset } = useApp();
-  return (
-    <PageSection label="Show me it happening">
-      <Panel title="Six scenarios, six shapes">
-        <ScenarioRunner onReset={reset}>
-          {SCENARIOS.map((s) => <ScenarioCard key={s.id} name={s.name} premise={s.premise} demonstrates={s.demonstrates} state={scenarios[s.id]?.state ?? 'idle'} onRun={() => runScenario(s.id)} />)}
-        </ScenarioRunner>
-        {Object.values(scenarios).some((s) => s.log.length) ? <div className="mt-3 space-y-1 rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[11px] text-muted-foreground">{Object.values(scenarios).flatMap((s) => s.log.map((l, i) => <div key={`${s.id}-${i}`}>▸ {l}</div>))}</div> : null}
-        <ProvenanceNote>Happy path, exception, escalation, refusal, cash, close. Always reset before the room fills.</ProvenanceNote>
       </Panel>
     </PageSection>
   );

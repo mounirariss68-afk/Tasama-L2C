@@ -5,9 +5,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bot, GitBranch, History } from 'lucide-react';
 import { PageColumns, PageContainer, PageMasthead, PageSection, Panel } from '@cognirise/atelier/layout';
-import { AgentAutonomyChip, AgentCard, AgentDirectory, AgentProfile, DemoBanner, ProvenanceNote, WorkflowCard, WorkflowCatalog, WorkflowStep, WorkflowWalkthrough } from '@cognirise/atelier/archetypes';
+import { AgentAutonomyChip, AgentCard, AgentDirectory, AgentProfile, ProvenanceNote, WorkflowCard, WorkflowCatalog, WorkflowStep, WorkflowWalkthrough } from '@cognirise/atelier/archetypes';
 import { useApp } from '../app/state';
-import { AgentMark, Chip, Tabs, Trail } from '../app/bits';
+import { Body, AgentMark, Chip, Tabs, Trail } from '../app/bits';
 import { AGENTS, ASSISTANT, avatarFor, type AgentDef } from '@mizan/domain/agents';
 import { WORKFLOWS } from '@mizan/domain/workflows';
 import { STAGES } from '@mizan/domain/process';
@@ -19,8 +19,10 @@ export function AgentsScreen() {
   return (
     <>
       <PageMasthead title="Agents" meta={`${AGENTS.length} agents · ${WORKFLOWS.length} workflows · ${world.trail.length} trail entries`} figures={<><Chip tone="muted">A0 observe → A4 autonomous</Chip><Chip tone="primary">labelled at the rung they run at</Chip></>} />
-      <PageContainer><DemoBanner>Agents are deterministic in this prototype: they read the same synthetic data as the screens and follow the rules written in their workflows. The assistant in the rail matches; it does not comprehend.</DemoBanner></PageContainer>
-      <Tabs storageKey="agents" tabs={[{ id: 'team', label: 'Team', body: () => <Team /> }, { id: 'workflows', label: 'Workflows', body: () => <Workflows /> }, { id: 'trail', label: 'Decision trail', body: () => <TrailTab /> }]} />
+
+      <Body>
+        <Tabs storageKey="agents" tabs={[{ id: 'team', label: 'Team', body: () => <Team /> }, { id: 'workflows', label: 'Workflows', body: () => <Workflows /> }, { id: 'trail', label: 'Decision trail', body: () => <TrailTab /> }]} />
+      </Body>
     </>
   );
 }

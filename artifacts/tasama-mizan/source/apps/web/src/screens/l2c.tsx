@@ -5,9 +5,9 @@
 import { useMemo, useState } from 'react';
 import { Banknote, Building2, FileSignature, FileText, Receipt, Route } from 'lucide-react';
 import { PageColumns, PageContainer, PageMasthead, PageSection, Panel, PanelAction, StatRow, StatTile } from '@cognirise/atelier/layout';
-import { AgentAutonomyChip, DemoBanner, DemoReference, ProvenanceChip, ProvenanceNote, WorkItemCard, WorkflowStep, WorkflowWalkthrough, WorkspaceLane, WorkspaceLanes } from '@cognirise/atelier/archetypes';
+import { AgentAutonomyChip, DemoReference, ProvenanceChip, ProvenanceNote, WorkItemCard, WorkflowStep, WorkflowWalkthrough, WorkspaceLane, WorkspaceLanes } from '@cognirise/atelier/archetypes';
 import { useApp } from '../app/state';
-import { AgentMark, Btn, Chip, EventStatusChip, KV, Money, Table, Tabs, Trail } from '../app/bits';
+import { Body, AgentMark, Btn, Chip, EventStatusChip, KV, Money, Table, Tabs, Trail } from '../app/bits';
 import { ageBucket, ageing, arOpen, clientOf, daysBetween, dso, eventStatus, invoiceOf, isInvoiced, lineOf, marginByClient, openInvoices, poConsumption, toSAR, unbilled, waterfall, GM_TARGET, type EventStatus } from '@mizan/domain/derive';
 import { date, money, pct, period } from '@mizan/domain/format';
 import { STAGES, stageMetrics, type StageId } from '@mizan/domain/process';
@@ -26,15 +26,16 @@ export function L2CScreen() {
     <>
       <PageMasthead title={client ? `${client.short} — lead to cash` : 'Lead to cash'} meta={client ? client.name : `${w.clients.length} accounts · ${w.pos.length} purchase orders · ${w.pos.reduce((s, p) => s + p.lines.length, 0)} lines`}
         figures={<><Chip tone="primary">{period(world.closingPeriod)}</Chip><Chip>contracted {money(wf.contracted, 'SAR', { compact: true })}</Chip><Chip>invoiced {money(wf.invoiced, 'SAR', { compact: true })}</Chip><Chip tone={unbilled(w) ? 'warn' : 'success'}>unbilled {money(unbilled(w), 'SAR', { compact: true })}</Chip></>} />
-      <PageContainer><DemoBanner>Synthetic engagements on real PIF-portfolio client names. Pricing models and rates follow the examples in Tasama's own PO ledger; every value is invented.</DemoBanner></PageContainer>
-      <Tabs storageKey="l2c" tabs={[
+
+      <Body>
+        <Tabs storageKey="l2c" tabs={[
         { id: 'process', label: 'Process', body: () => <ProcessTab /> },
-        { id: 'contracts', label: 'Contracts', body: () => <ContractsTab w={w} /> },
-        { id: 'orders', label: 'Orders & schedules', body: () => <OrdersTab w={w} /> },
+        { id: 'contracts', label: 'Contracts & orders', body: () => <><ContractsTab w={w} /><OrdersTab w={w} /></> },
         { id: 'billing', label: 'Billing', body: () => <BillingTab w={w} /> },
         { id: 'collections', label: 'Collections', body: () => <CollectionsTab w={w} /> },
         { id: 'clients', label: 'Clients', body: () => <ClientsTab w={w} /> },
       ]} />
+      </Body>
     </>
   );
 }
@@ -221,13 +222,13 @@ function BillingTab({ w }: { w: W }) {
           <StatTile label="Invoiced this month" value={String(inflight.length + output.length)} state={money([...inflight, ...output].reduce((s, e) => s + toSAR(invoiceOf(world, e.invoiceId)?.net ?? 0, e.currency), 0), 'SAR', { compact: true })} trend={{ direction: 'flat', label: `${byStatus(['rejected']).length} rejected by ZATCA`, sentiment: byStatus(['rejected']).length ? 'bad' : 'good' }} />
         </StatRow>
       </PageSection>
-      <PageContainer width="wide" className="pb-6">
+      <div>
         <WorkspaceLanes>
           <WorkspaceLane title="Intake" caption="Due, missed or blocked — not yet an invoice" count={intake.length} tone="accent">{intake.length ? intake.map(card) : <p className="text-xs text-muted-foreground">Everything due is invoiced.</p>}</WorkspaceLane>
           <WorkspaceLane title="In flight" caption="Drafted, awaiting release, posting or rejected" count={inflight.length}>{inflight.length ? inflight.map(card) : <p className="text-xs text-muted-foreground">No drafts. Run the billing run.</p>}</WorkspaceLane>
           <WorkspaceLane title="Output" caption="Posted to the ERP and cleared by ZATCA" count={output.length}>{output.length ? output.map(card) : <p className="text-xs text-muted-foreground">Nothing cleared yet this month.</p>}</WorkspaceLane>
         </WorkspaceLanes>
-      </PageContainer>
+      </div>
     </>
   );
 }

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { PageContainer, PageMasthead } from '@cognirise/atelier/layout';
 import { DecisionBar, DemoReference, InboxFilters, InboxItem, InboxLayout, InboxList, InboxReader, InboxTabs, ReaderSection, ProvenanceChip } from '@cognirise/atelier/archetypes';
 import { useApp } from '../app/state';
-import { AgentMark, Btn, Chip, EventStatusChip, KV, Money, Trail } from '../app/bits';
+import { Body, AgentMark, Btn, Chip, EventStatusChip, KV, Money, Trail } from '../app/bits';
 import { bankRec, clientOf, eventStatus, inboxItems, invoiceOf, lineOf, poConsumption, type InboxItemModel } from '@mizan/domain/derive';
 import { date, money, pct } from '@mizan/domain/format';
 import { ERP_LABEL, invoiceCall, journalCall, receiptCall } from '@mizan/domain/erp';
@@ -29,7 +29,9 @@ export function InboxScreen() {
   return (
     <>
       <PageMasthead title="Inbox" meta={`${mine.length} decisions for ${persona.name} · ${waiting.length} waiting on others · ${all.length} open across Mizan`} />
-      <PageContainer width="wide" className="pb-6">
+
+      <Body>
+        <div>
         <InboxLayout
           tabs={<InboxTabs value={tab} onChange={(id) => setTab(id as typeof tab)} items={[{ id: 'mine', label: 'Needs my decision', count: mine.length, tone: 'attention' }, { id: 'waiting', label: 'Waiting on others', count: waiting.length }, { id: 'all', label: 'All open', count: all.length }]} />}
           filters={
@@ -55,7 +57,8 @@ export function InboxScreen() {
           }
           reader={selected ? <Reader item={selected} canAct={mine.includes(selected)} /> : <InboxReader empty={<div className="p-6 text-sm text-muted-foreground">Select an item. Each one ends in a decision — the agent prepared it, you make it.</div>} />}
         />
-      </PageContainer>
+      </div>
+      </Body>
     </>
   );
 }

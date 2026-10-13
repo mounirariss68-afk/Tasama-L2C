@@ -7,7 +7,7 @@ import { PageContainer } from '@cognirise/atelier/layout';
 import { AgentAvatar, AgentAutonomyChip, DecisionTrail, TrailEntry as TrailRow } from '@cognirise/atelier/archetypes';
 import { useApp } from './state';
 import { AGENTS, agentById, avatarFor } from '@mizan/domain/agents';
-import { PERSONAS } from '@mizan/domain/personas';
+import { DEPARTMENTS, PERSONAS } from '@mizan/domain/personas';
 import { dateTime, money } from '@mizan/domain/format';
 import type { EventStatus } from '@mizan/domain/derive';
 import { EVENT_STATUS_LABEL } from '@mizan/domain/derive';
@@ -26,7 +26,7 @@ const TONE: Record<Tone, string> = {
 };
 
 export function Chip({ children, tone = 'default', title, className = '' }: { children: ReactNode; tone?: Tone; title?: string; className?: string }) {
-  return <span title={title} className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider ${TONE[tone]} ${className}`}>{children}</span>;
+  return <span title={title} className={`chip inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider ${TONE[tone]} ${className}`}>{children}</span>;
 }
 
 export const STATUS_TONE: Record<EventStatus, Tone> = {
@@ -54,12 +54,19 @@ export function AgentMark({ id, size = 22, showName = true }: { id: string; size
   );
 }
 
+/** The body of a screen: one measure, one vertical rhythm. Mastheads and heroes sit above it, full-bleed. */
+export function Body({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <PageContainer width="wide" className={`space-y-8 py-6 ${className}`}>{children}</PageContainer>;
+}
+
+/** A person (persona) or, for the close inputs, a department that is not a Mizan user. */
 export function PersonMark({ id }: { id: string }) {
   const p = PERSONAS.find((x) => x.id === id);
+  const d = DEPARTMENTS[id];
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="inline-flex h-[22px] w-[22px] items-center justify-center rounded-full border border-border/70 bg-card/60 font-mono text-[9px] text-foreground">{p?.initials ?? '??'}</span>
-      <span className="text-xs text-foreground">{p?.name ?? id}</span>
+      <span className={`inline-flex h-[22px] w-[22px] items-center justify-center rounded-full border font-mono text-[9px] ${d ? 'border-dashed border-border/70 text-muted-foreground' : 'border-border/70 bg-card/60 text-foreground'}`}>{p?.initials ?? d?.initials ?? '??'}</span>
+      <span className="text-xs text-foreground">{p?.name ?? d?.name ?? id}</span>
     </span>
   );
 }
@@ -89,7 +96,7 @@ export function Tabs({ tabs, storageKey }: { tabs: Tab[]; storageKey: string }) 
   const current = tabs.find((t) => t.id === active) ?? tabs[0];
   return (
     <>
-      <PageContainer className="mb-4">
+      <div>
         <div className="flex flex-wrap items-center gap-1.5">
           {tabs.map((t) => (
             <button key={t.id} type="button" onClick={() => setActive(t.id)} title={t.hint}
@@ -98,7 +105,7 @@ export function Tabs({ tabs, storageKey }: { tabs: Tab[]; storageKey: string }) 
             </button>
           ))}
         </div>
-      </PageContainer>
+      </div>
       {current?.body()}
     </>
   );

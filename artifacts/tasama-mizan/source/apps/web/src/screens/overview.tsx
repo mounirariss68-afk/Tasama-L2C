@@ -3,18 +3,17 @@
  */
 import { AlertTriangle, ArrowRight, Banknote, CalendarClock, Coins, FileWarning, Gauge, Route, TrendingUp } from 'lucide-react';
 import { FeedCard, HeroFeature, PageColumns, PageContainer, PageHero, PageSection, Panel, PanelAction, StatRow, StatTile } from '@cognirise/atelier/layout';
-import { DemoBanner, ProvenanceNote } from '@cognirise/atelier/archetypes';
+import { ProvenanceNote } from '@cognirise/atelier/archetypes';
 import { useApp } from '../app/state';
-import { Chip, Delta, Money } from '../app/bits';
+import { Body, Chip, Delta, Money } from '../app/bits';
 import { arOpen, budgetByMonth, closeSummary, deferredBalance, dso, dsoBySegment, fyTotals, inboxItems, marginByClient, overdue, unbilled, waterfall, cashStats, GM_TARGET, nonPifShare } from '@mizan/domain/derive';
 import { money, monthName, pct, period } from '@mizan/domain/format';
 import { STAGES, stageMetrics } from '@mizan/domain/process';
 import { BarChart, Legend, LineChart, SERIES } from '../lib/viz';
-import { closeOverview } from '@mizan/domain/close';
 
 export function OverviewScreen() {
   const { world, go, persona } = useApp();
-  const close = closeOverview(world);
+  const close = closeSummary(world);
   const wf = waterfall(world);
   const unb = unbilled(world);
   const ar = arOpen(world);
@@ -31,7 +30,7 @@ export function OverviewScreen() {
   const blockedCoc = world.events.filter((e) => e.period === world.closingPeriod || e.id.includes('/D2')).filter((e) => e.coc !== 'signed' && e.coc !== 'not_required' && !e.invoiceId);
   const headline = world.flags.periodClosed
     ? `${period(world.closingPeriod)} is closed.`
-    : `${money(unb, 'SAR', { compact: true })} of delivered work is unbilled; ${blockedCoc.length} invoice${blockedCoc.length === 1 ? ' is' : 's are'} blocked on a client certificate of completion. ${24 - close.done} of Tasama’s 24 close procedures still need completion or review.`;
+    : `${money(unb, 'SAR', { compact: true })} of delivered work is unbilled; ${blockedCoc.length} invoice${blockedCoc.length === 1 ? ' is' : 's are'} blocked on a client certificate of completion. ${close.blocked} of Tasama's 24 closing procedures ${close.blocked === 1 ? 'is' : 'are'} blocked.`;
 
   const steps = [
     { label: 'Contracted', value: wf.contracted, sub: 'Billing schedule for the month' },
@@ -46,37 +45,32 @@ export function OverviewScreen() {
   return (
     <>
       <PageHero
-        tone="surface"
-        eyebrow={`Revenue operations · as of ${world.asOf} · 24-procedure monthly close`}
+        eyebrow={`Revenue operations · as of ${world.asOf} · close day ${world.closeDay} of 10`}
         title={<>{period(world.closingPeriod)} close</>}
         lede={headline}
+        feature={<HeroFeature label="Unbilled revenue" value={money(unb, 'SAR', { compact: true })} support={`${world.events.filter((e) => ['due', 'missed', 'blocked_coc'].includes(eventStatusSafe(world, e))).length} billing events delivered and not invoiced`} />}
         actions={
           <>
-            <button type="button" onClick={() => go('close')} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">Open the close <ArrowRight size={14} /></button>
-            <button type="button" onClick={() => go('inbox')} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5">{inbox.length} waiting on {persona.name.split(' ')[0]}</button>
+            <button type="button" onClick={() => go('close')} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-white/30 hover:bg-white/25">Open the close <ArrowRight size={14} /></button>
+            <button type="button" onClick={() => go('inbox')} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white/85 hover:bg-white/10">{inbox.length} waiting on {persona.name.split(' ')[0]}</button>
           </>
         }
       >
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Chip tone="highlight">{close.done} done</Chip>
-          <Chip tone="warn">{close.actionNeeded} action needed</Chip>
-          <Chip tone="primary">{close.waiting} waiting for others</Chip>
-          <Chip tone="muted">{close.instance.calendar.confirmed ? 'Working-day calendar confirmed' : 'Calendar needs confirmation'}</Chip>
-        </div>
-        <div className="mt-5 max-w-md">
-          <HeroFeature label="Unbilled revenue" value={money(unb, 'SAR', { compact: true })} support={`${world.events.filter((e) => ['due', 'missed', 'blocked_coc'].includes(eventStatusSafe(world, e))).length} billing events delivered and not invoiced`} />
+        <div className="flex flex-wrap gap-2">
+          <Chip tone="highlight">{close.done} of {close.total - close.external} procedures done</Chip>
+          <Chip tone={close.blocked ? 'danger' : 'muted'}>{close.blocked} blocked</Chip>
+          <Chip tone={close.inputsDone ? 'success' : 'warn'}>inputs 1–5 {close.inputsDone ? 'in' : 'open'}</Chip>
+          <Chip tone="muted">hard close Day 10 · target Day 5</Chip>
         </div>
       </PageHero>
+      <Body>
 
-      <PageContainer>
-        <DemoBanner>Every client name is a real PIF-portfolio company from Tasama's own PO ledger; every contract, figure, person and event is synthetic. Nothing here is a finding about Tasama or its clients.</DemoBanner>
-      </PageContainer>
 
       <PageSection label="The month, in five numbers">
         <StatRow>
           <StatTile label="Overdue receivables" value={money(odAmt, 'SAR', { compact: true })} state={`${od.length} invoices`} trend={{ direction: 'up', label: `oldest ${Math.max(0, ...od.map((x) => x.days))} days`, sentiment: 'bad' }} />
-          <StatTile label="DSO (countback, 90 days)" value={`${dso(world)} days`} state="all segments" trend={{ direction: 'flat', label: Object.entries(dsoBySegment(world)).map(([k, v]) => `${k} ${v.dso === null ? 'n/a' : v.dso}`).join(' · '), sentiment: 'neutral' }} />
-          <StatTile label="Cash applied this month" value={money(cash.appliedAmount, 'SAR', { compact: true })} state={`${cash.applied} receipts`} trend={{ direction: cash.proposed.length ? 'down' : 'flat', label: `${cash.proposed.length} proposed · ${cash.unapplied.length} unapplied · ${pct(cash.autoRate)} auto`, sentiment: cash.proposed.length ? 'neutral' : 'good' }} />
+          <StatTile label="DSO" value={`${dso(world)} days`} state="90-day countback" trend={{ direction: 'flat', label: Object.entries(dsoBySegment(world)).map(([k, v]) => `${k} ${v.dso === null ? 'n/a' : v.dso}`).join(' · '), sentiment: 'neutral' }} />
+          <StatTile label="Cash applied" value={money(cash.appliedAmount, 'SAR', { compact: true })} state={`${cash.applied} receipts`} trend={{ direction: cash.proposed.length ? 'down' : 'flat', label: `${cash.proposed.length} proposed · ${cash.unapplied.length} unapplied · ${pct(cash.autoRate)} auto`, sentiment: cash.proposed.length ? 'neutral' : 'good' }} />
           <StatTile label="FY forecast" value={money(fy.forecast, 'SAR', { compact: true })} state={`vs budget ${money(fy.budget, 'SAR', { compact: true })}`} trend={{ direction: fy.forecast >= fy.budget ? 'up' : 'down', label: `YTD ${money(fy.actualYtd, 'SAR', { compact: true })} vs ${money(fy.budgetYtd, 'SAR', { compact: true })} · GM ${pct(gm)} vs ${pct(GM_TARGET)} · non-PIF ${pct(nonPifShare(world))}`, sentiment: fy.forecast >= fy.budget ? 'good' : 'bad' }} />
         </StatRow>
       </PageSection>
@@ -159,7 +153,8 @@ export function OverviewScreen() {
           </Panel>
         </div>
       </PageSection>
-      <PageContainer className="pb-6"><div className="flex items-center gap-2 text-[11px] text-muted-foreground"><CalendarClock size={12} /> Close calendar: statements read on Day 1, hard close by Day 10 — the outer bound Tasama commits to its own clients, applied here to Tasama's own books — with a five-day target.</div></PageContainer>
+      <div><div className="flex items-center gap-2 text-[11px] text-muted-foreground"><CalendarClock size={12} /> Close calendar: statements read on Day 1, hard close by Day 10 — the outer bound Tasama commits to its own clients, applied here to Tasama's own books — with a five-day target.</div></div>
+      </Body>
     </>
   );
 }

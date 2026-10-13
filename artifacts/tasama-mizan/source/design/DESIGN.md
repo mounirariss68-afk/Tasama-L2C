@@ -1,6 +1,8 @@
 # Tasama Mizan — Lead-to-Cash and Close platform
 
-**Design document · v2 · 6 October 2026 · Cognirise for TASAMA Business Services**
+**Design document · v3 · 13 October 2026 · Cognirise for TASAMA Business Services**
+
+v3 (13 Oct): the close checklist is Tasama's own 24 "Monthly Closing Procedures" (the PDF Tasama shared, kept in this folder) with statuses derived from the data; the demo runs through the Demo Director (the Tasama HR / QIB Jahiz pattern); the menu and screens were simplified — Scenarios as its own item, Lead to cash 6 tabs → 5, Close 10 tabs → 4, Settings 6 → 3, one "Synthetic data" chip instead of a banner per screen, one spacing rhythm.
 
 Status: design complete and built. v2 re-cuts the process into the four stages the demo is organised by (Lead-to-Contract · Contract-to-Service · Service-to-Cash · Close), states the scope boundary explicitly, and moves the world from the browser to a server-owned PostgreSQL database (section 10.4). Everything below was derived from the Tasama material in `~/Downloads/Tasama` (54 files extracted to `research/extracts/`), the attached *DT – Finance Process Baseline* deck, the CogniDocs API guide, and public research on Tasama (`research/01-…04-….md`). Where a fact comes from Tasama's own documents it is marked **[T]**; where it is a design decision of ours it is marked **[D]**; where it is an assumption that Tasama must confirm it is marked **[A]**.
 
@@ -108,6 +110,9 @@ What the build shows for Stage 2: the **Orders & schedules** tab — ten POs wit
 What the build shows for Stage 3: the **Billing** tab (intake → in flight → output, the billing run), **Collections** (ageing, dunning, DSO by segment), the **Documents** screen (CogniDocs), and the Inbox items each step produces.
 
 ### 3.4 Stage 4 — Close (Mizan operates)
+
+**v3 — the checklist is Tasama's.** The Close screen's checklist is no longer our eight-step list but Tasama's own 24 procedures, in their numbering, with their area, responsible, deadline and today's automation column carried verbatim. Inputs 1–5 come first (HR payroll, Requesters' CoCs, Operations and D&T delivery schedules); Finance 6–24 follows "2 WD after completing 1–5". Mizan derives each status from the world: P3 and P8 from vendor invoices, P4/P5 from the delivery schedule Shahid builds, P6/P7 from the bank reconciliations and cash application, P10/P11/P19/P20 from the journals, P17/P21 from billing and ZATCA, P18 from receivables, P22 from the reforecast, P23/P24 from the period flag. P12–P16 (Fixed Assets, Leases) are shown as ERP jobs outside Mizan. The eight-step table below remains the agentic view of the same stage.
+
 
 | # | Step | Actor | System | Mizan | Gate | Agent | Coverage |
 |---|---|---|---|---|---|---|---|

@@ -41,7 +41,7 @@ const SPECS: Record<string, Spec> = {
   drivers: { table: 'variance_drivers', cols: ['id', 'businessLine', 'kind', 'amount', 'explanation', 'provenance'].map((f) => C(f)) },
   opportunities: { table: 'opportunities', cols: ['id', 'clientId', 'name', 'businessLine', 'stage', 'amount', 'recurring', 'probability', 'expectedStart', 'termMonths', 'owner', 'note'].map((f) => C(f)) },
   pipeline: { table: 'pipeline', cols: ['id', 'businessLine', 'month', 'weighted', 'label'].map((f) => C(f)) },
-  closeItems: { table: 'close_items', cols: ['id', 'workstream', 'title', 'owner', 'agentId', 'dueDay', 'status', 'blocker', 'evidence', 'derivedFrom'].map((f) => C(f)) },
+  closeItems: { table: 'close_items', cols: [C('id'), C('number'), C('group', 'group_name'), C('workstream'), C('title'), C('owner'), C('agentId'), C('deadline'), C('dueDay'), C('tasamaAutomation'), C('coverage'), C('status'), C('blocker'), C('evidence'), C('derivedFrom')] },
   journals: { table: 'journals', cols: ['id', 'kind', 'description', 'lines', 'proposedBy', 'status', 'period', 'erpRef'].map((f) => C(f)) },
   findings: { table: 'findings', cols: ['id', 'agentId', 'kind', 'clientId', 'amount', 'summary', 'detail', 'recordRef', 'acknowledged', 'resolvedBy'].map((f) => C(f)) },
   dunning: { table: 'dunning', cols: ['id', 'invoiceId', 'clientId', 'stage', 'proposedStage', 'draft', 'status', 'promiseToPay', 'dispute'].map((f) => C(f)) },
@@ -103,9 +103,12 @@ export async function ensureSchema() {
   await pool.query(sql);
 }
 
+/** Bumped when the seed's shape changes in a way an existing database cannot carry (new tables or columns the old rows lack). A mismatch re-seeds on start. */
+export const SEED_VERSION = 2;
+
 export async function isSeeded(): Promise<boolean> {
-  const r = await pool.query(`select 1 from mizan.world_meta where key = 'asOf'`);
-  return r.rowCount! > 0;
+  const r = await pool.query(`select value from mizan.world_meta where key = 'seedVersion'`);
+  return r.rowCount! > 0 && Number(r.rows[0].value) === SEED_VERSION;
 }
 
 export async function reseed(): Promise<World> {
@@ -133,13 +136,13 @@ async function insert(client: pg.PoolClient, spec: Spec, row: Record<string, unk
 }
 
 async function writeMeta(client: pg.PoolClient, world: World) {
-  const meta: Record<string, unknown> = { asOf: world.asOf, closingPeriod: world.closingPeriod, closeDay: world.closeDay, flags: world.flags, settings: world.settings, closeWorkspace: world.closeWorkspace ?? null };
+  const meta: Record<string, unknown> = { asOf: world.asOf, closingPeriod: world.closingPeriod, closeDay: world.closeDay, flags: world.flags, settings: world.settings, seedVersion: SEED_VERSION };
   for (const [k, v] of Object.entries(meta)) await client.query(`insert into mizan.world_meta (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value`, [k, JSON.stringify(v)]);
 }
 
 export async function loadWorld(): Promise<World> {
   const meta = Object.fromEntries((await pool.query(`select key, value from mizan.world_meta`)).rows.map((r) => [r.key, r.value]));
-  const out: Record<string, unknown> = { asOf: meta.asOf, closingPeriod: meta.closingPeriod, closeDay: meta.closeDay, flags: meta.flags, settings: meta.settings, ...(meta.closeWorkspace ? { closeWorkspace: meta.closeWorkspace } : {}) };
+  const out: Record<string, unknown> = { asOf: meta.asOf, closingPeriod: meta.closingPeriod, closeDay: meta.closeDay, flags: meta.flags, settings: meta.settings };
   const loaded: Record<string, Record<string, unknown>[]> = {};
   for (const [key, spec] of Object.entries(SPECS)) {
     const r = await pool.query(`select * from mizan.${spec.table} order by position`);

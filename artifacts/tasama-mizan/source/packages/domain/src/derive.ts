@@ -7,7 +7,6 @@ import type {
   POLine, World,
 } from './types';
 import { USD_SAR, monthOf } from './world';
-import { closeOverview } from './close-derive';
 
 export const GM_TARGET = 0.23;
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -279,54 +278,128 @@ export function nonPifShare(world: World) {
 
 /* ----------------------------------------------------------- close */
 
+const DT_LINES = new Set(['502', '504', '506', 'EVAS']);
+const fmtSar = (n: number) => `SAR ${Math.round(n).toLocaleString('en-US')}`;
+
+/**
+ * Tasama's 24 procedures with their status read from the world. Nothing here
+ * is ticked by a person: billing, cash, bank, vendor, journal, budget and
+ * period state decide. Fixed Assets and Leases stay `external`.
+ */
 export function deriveCloseItems(world: World): CloseItem[] {
-  const events = world.events.filter((e) => e.period === world.closingPeriod || eventStatus(world, e) === 'missed');
+  const period = world.closingPeriod;
+  const events = world.events.filter((e) => e.period === period || eventStatus(world, e) === 'missed');
   const billingOpen = events.filter((e) => ['due', 'missed'].includes(eventStatus(world, e)));
   const blocked = events.filter((e) => isBlocked(eventStatus(world, e)));
   const recs = world.bankAccounts.map((a) => bankRec(world, a.id));
   const cash = cashStats(world);
   const rejected = world.invoices.filter((i) => i.zatca === 'rejected');
-  const vendorOpen = world.vendorInvoices.filter((v) => ['proposed', 'no_po'].includes(v.matchStatus));
-  const journalsOpen = world.journals.filter((j) => j.status === 'proposed');
-  return world.closeItems.map((c) => {
-    const x = { ...c };
+  const released = world.invoices.filter((i) => i.date.startsWith(world.asOf.slice(0, 7)) && ['released', 'posted', 'paid'].includes(i.status));
+  const journal = (kind: string) => world.journals.find((j) => j.kind === kind);
+  const jStatus = (kinds: string[]): CloseItem['status'] => { const js = kinds.map(journal).filter(Boolean) as typeof world.journals; if (!js.length) return 'not_started'; return js.every((j) => j.status === 'posted') ? 'done' : js.some((j) => j.status === 'approved') ? 'in_progress' : 'not_started'; };
+  const jEvidence = (kinds: string[]) => (kinds.map(journal).filter(Boolean) as typeof world.journals).map((j) => `${j.id} ${j.status}${j.erpRef ? ` (${j.erpRef})` : ''}`).join('; ');
+  const delivery = (dt: boolean) => {
+    const evs = world.events.filter((e) => e.period === period && DT_LINES.has(lineOf(world, e.lineId).businessLine) === dt);
+    const evidenced = evs.filter((e) => eventStatus(world, e) !== 'scheduled' && eventStatus(world, e) !== 'blocked_evidence');
+    const stuck = evs.filter((e) => ['blocked_coc', 'blocked_no_po', 'blocked_evidence'].includes(eventStatus(world, e)));
+    return { evs, evidenced, stuck };
+  };
+  const vendorProposed = world.vendorInvoices.filter((v) => v.matchStatus === 'proposed');
+  const vendorNoPo = world.vendorInvoices.filter((v) => ['no_po', 'rejected'].includes(v.matchStatus));
+  const financeDone = (items: CloseItem[]) => items.filter((i) => i.group === 'finance' && i.number < 23 && i.status !== 'external').every((i) => i.status === 'done');
+
+  const items = world.closeItems.map((c) => {
+    const x: CloseItem = { ...c };
     switch (c.derivedFrom) {
-      case 'billing':
-        if (billingOpen.length === 0 && blocked.length === 0) { x.status = 'done'; x.evidence = 'All September events invoiced; nothing missed.'; }
-        else { x.status = blocked.length ? 'blocked' : 'in_progress'; x.blocker = `${billingOpen.length} event(s) due or missed, ${blocked.length} blocked (${blocked.map((e) => EVENT_STATUS_LABEL[eventStatus(world, e)]).filter((v, i, a) => a.indexOf(v) === i).join('; ')})`; }
+      case 'vendor_coc': {
+        x.status = vendorProposed.length ? 'in_progress' : 'done';
+        x.evidence = `${world.vendorInvoices.filter((v) => v.matchStatus === 'matched').length} vendor invoice(s) matched to a vendor PO and delivery`;
+        x.blocker = vendorProposed.length ? `${vendorProposed.length} three-way match(es) awaiting the Accountant (${vendorProposed.map((v) => v.vendorName).join(', ')})` : undefined;
         break;
-      case 'journals': {
-        const j = world.journals.find((jj) => (c.id === 'c02' ? jj.kind === 'Unbilled revenue accrual' : jj.kind === 'Deferred revenue release'));
-        x.status = j?.status === 'posted' ? 'done' : j?.status === 'approved' ? 'in_progress' : 'not_started';
-        if (j?.status === 'posted') x.evidence = `${j.id} posted (${j.erpRef ?? 'ERP'})`;
+      }
+      case 'delivery_ops': case 'delivery_dt': {
+        const d = delivery(c.derivedFrom === 'delivery_dt');
+        x.status = d.stuck.length ? 'blocked' : d.evidenced.length === d.evs.length ? 'done' : 'in_progress';
+        x.evidence = `Schedule derived by Shahid from PPM / ServiceNow / timesheets: ${d.evidenced.length} of ${d.evs.length} ${period} events evidenced, ${fmtSar(d.evidenced.reduce((s, e) => s + toSAR(e.expectedAmount, e.currency), 0))}`;
+        x.blocker = d.stuck.length ? d.stuck.map((e) => `${clientOf(world, e.clientId).short} — ${EVENT_STATUS_LABEL[eventStatus(world, e)]}`).join('; ') : undefined;
+        break;
+      }
+      case 'bank': {
+        const signed = recs.filter((r) => r.account.signedOff).length;
+        x.status = signed === recs.length ? 'done' : signed ? 'in_progress' : recs.every((r) => r.explained) ? 'in_progress' : 'blocked';
+        x.evidence = recs.map((r) => `${r.account.bank}: ${r.explained ? 'explained' : 'unexplained'}${r.account.signedOff ? ', signed' : ''}`).join(' · ');
+        x.blocker = signed === recs.length ? undefined : `${recs.length - signed} account(s) not signed off; ${recs.reduce((s, r) => s + r.unmatchedStatement.length + r.unmatchedLedger.length, 0)} open item(s)`;
+        break;
+      }
+      case 'cash_applied': {
+        x.status = cash.proposed.length + cash.unapplied.length === 0 ? 'done' : 'in_progress';
+        x.evidence = `${cash.applied} receipt(s) posted through the connector this month`;
+        x.blocker = x.status === 'done' ? undefined : `${cash.proposed.length} proposed, ${cash.unapplied.length} unapplied — Create Accounting runs in the ERP once cash is applied`;
+        break;
+      }
+      case 'vendor_ap': {
+        x.status = vendorNoPo.length ? 'blocked' : 'done';
+        x.blocker = vendorNoPo.length ? vendorNoPo.map((v) => `${v.vendorName} ${v.invoiceRef} — ${v.matchStatus === 'no_po' ? 'no vendor PO' : 'rejected'}`).join('; ') : undefined;
+        x.evidence = `${world.vendorInvoices.filter((v) => v.matchStatus === 'matched').length} approved and posted to AP`;
+        break;
+      }
+      case 'erp_ap': {
+        x.status = vendorNoPo.length || vendorProposed.length ? 'not_started' : 'done';
+        x.evidence = x.status === 'done' ? 'AP accounting can run: every vendor invoice matched or refused' : 'Waits for procedures 3 and 8';
+        break;
+      }
+      case 'journal_vendor': { x.status = jStatus(['Vendor accrual']); x.evidence = jEvidence(['Vendor accrual']); break; }
+      case 'journal_manual': { x.status = jStatus(['Bank charges', 'FX difference', 'Rate correction (debit note)']); x.evidence = jEvidence(['Bank charges', 'FX difference', 'Rate correction (debit note)']); break; }
+      case 'billing': {
+        if (billingOpen.length === 0 && blocked.length === 0) { x.status = 'done'; x.evidence = `All ${period} events invoiced and recorded; ${released.length} invoice(s) posted this month.`; }
+        else { x.status = blocked.length ? 'blocked' : 'in_progress'; x.evidence = `${released.length} invoice(s) posted this month`; x.blocker = `${billingOpen.length} event(s) due or missed, ${blocked.length} blocked (${blocked.map((e) => EVENT_STATUS_LABEL[eventStatus(world, e)]).filter((v, i, a) => a.indexOf(v) === i).join('; ')})`; }
         break;
       }
       case 'ar_tie': {
-        const sub = arOpen(world); x.evidence = `AR sub-ledger SAR ${Math.round(sub).toLocaleString('en-US')} = GL 1200 control (derived from the same invoices and receipts)`;
+        x.evidence = `AR sub-ledger ${fmtSar(arOpen(world))} ties to the control account; ${world.dunning.filter((d) => d.status === 'proposed').length} dunning notice(s) awaiting the KAM`;
         x.status = cash.proposed.length || cash.unapplied.length ? 'in_progress' : 'done';
         if (x.status !== 'done') x.blocker = `${cash.proposed.length + cash.unapplied.length} receipt(s) not yet applied`;
         break;
       }
-      case 'bank': {
-        if (c.id === 'c09') { x.status = cash.proposed.length + cash.unapplied.length === 0 ? 'done' : 'in_progress'; x.blocker = x.status === 'done' ? undefined : `${cash.proposed.length} proposed, ${cash.unapplied.length} unapplied`; }
-        else { const signed = recs.filter((r) => r.account.signedOff).length; x.status = signed === recs.length ? 'done' : signed ? 'in_progress' : (recs.every((r) => r.explained) ? 'in_progress' : 'blocked'); x.blocker = signed === recs.length ? undefined : `${recs.length - signed} account(s) not signed off; ${recs.reduce((s, r) => s + r.unmatchedStatement.length + r.unmatchedLedger.length, 0)} open item(s)`; }
+      case 'journal_unbilled': { x.status = jStatus(['Unbilled revenue accrual']); x.evidence = `Recognised ${period} revenue from the delivery schedule; ${jEvidence(['Unbilled revenue accrual']) || 'unbilled accrual not yet proposed'}`; break; }
+      case 'journal_deferred': { x.status = jStatus(['Deferred revenue release']); x.evidence = `Unbilled ${fmtSar(unbilled(world))} · deferred ${fmtSar(deferredBalance(world))} · ${jEvidence(['Deferred revenue release'])}`; break; }
+      case 'erp_ar': {
+        x.status = rejected.length ? 'blocked' : billingOpen.length || blocked.length ? 'not_started' : 'done';
+        x.blocker = rejected.length ? `${rejected.length} invoice(s) rejected by ZATCA — output VAT cannot tie` : undefined;
+        x.evidence = rejected.length ? undefined : x.status === 'done' ? 'Every posted invoice cleared by ZATCA; AR accounting can run' : 'Waits for procedure 17';
         break;
       }
-      case 'vendor':
-        x.status = vendorOpen.length ? 'in_progress' : 'done'; x.blocker = vendorOpen.length ? `${vendorOpen.length} vendor invoice(s) unresolved (${vendorOpen.map((v) => v.matchStatus).join(', ')})` : undefined; break;
-      case 'zatca':
-        x.status = rejected.length ? 'blocked' : 'done'; x.blocker = rejected.length ? `${rejected.length} invoice(s) rejected by ZATCA` : undefined; break;
-      case 'budget':
-        x.status = journalsOpen.length ? 'in_progress' : 'in_progress'; break;
+      case 'budget': {
+        x.status = world.flags.reforecastAccepted ? 'done' : 'in_progress';
+        x.evidence = `${world.drivers.length} variance driver(s) explained by Mizaniya${world.flags.reforecastAccepted ? '; reforecast accepted by FP&A' : ''}`;
+        x.blocker = world.flags.reforecastAccepted ? undefined : 'Reforecast proposed, not yet accepted';
+        break;
+      }
+      case 'period_close': {
+        x.status = world.flags.periodClosed ? 'done' : 'not_started';
+        x.evidence = world.flags.periodClosed ? `${period} closed by the CFO` : undefined;
+        break;
+      }
+      case 'reports': {
+        x.status = world.flags.periodClosed ? 'done' : 'not_started';
+        x.evidence = world.flags.periodClosed ? 'Close pack assembled from the same figures: AR, unbilled, deferred, bank, cost, budget' : undefined;
+        break;
+      }
     }
     return x;
   });
+  // The ERP close itself is blocked until every Finance procedure Mizan can see is done.
+  const p23 = items.find((i) => i.number === 23);
+  if (p23 && !world.flags.periodClosed) { const ready = financeDone(items); p23.status = ready ? 'not_started' : 'blocked'; p23.blocker = ready ? undefined : `${items.filter((i) => i.group === 'finance' && i.number < 23 && !['done', 'external'].includes(i.status)).length} finance procedure(s) still open`; }
+  return items;
 }
 
 export function closeSummary(world: World) {
   const items = deriveCloseItems(world);
   const by = (s: CloseItem['status']) => items.filter((i) => i.status === s).length;
-  return { items, done: by('done'), inProgress: by('in_progress'), blocked: by('blocked'), notStarted: by('not_started'), total: items.length, readyToClose: closeOverview(world).ready };
+  const inputsDone = items.filter((i) => i.group === 'inputs').every((i) => i.status === 'done');
+  return { items, done: by('done'), inProgress: by('in_progress'), blocked: by('blocked'), notStarted: by('not_started'), external: by('external'), total: items.length, inputsDone,
+    readyToClose: items.filter((i) => i.number < 23 && i.status !== 'external').every((i) => i.status === 'done') };
 }
 
 /* ------------------------------------------------------------ inbox */

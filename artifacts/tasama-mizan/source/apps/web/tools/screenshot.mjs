@@ -28,10 +28,10 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 const errors = [];
 const overflow = [];
 const SECTIONS = [
-  ['overview', []], ['inbox', []], ['l2c', ['Process', 'Contracts', 'Orders & schedules', 'Billing', 'Collections', 'Clients']], ['documents', []],
-  ['close', ['Checklist', 'Bank reconciliation', 'Budget vs actual', 'Journals']], ['agents', ['Team', 'Workflows', 'Decision trail']], ['settings', ['Personas', 'Data', 'ERP', 'CogniDocs', 'Thresholds', 'Scenarios']],
+  ['overview', []], ['inbox', []], ['l2c', ['Process', 'Contracts & orders', 'Billing', 'Collections', 'Clients']], ['documents', []],
+  ['close', ['Checklist', 'Bank reconciliation', 'Budget vs actual', 'Journals']], ['agents', ['Team', 'Workflows', 'Decision trail']], ['scenarios', []], ['settings', ['Personas', 'Connections', 'Thresholds']],
 ];
-const LABEL = { overview: 'Overview', inbox: 'Inbox', l2c: 'Lead to cash', documents: 'Documents', close: 'Close', agents: 'Agents', settings: 'Settings' };
+const LABEL = { overview: 'Overview', inbox: 'Inbox', l2c: 'Lead to cash', documents: 'Documents', close: 'Close', agents: 'Agents', scenarios: 'Scenarios', settings: 'Settings' };
 
 for (const theme of ['light', 'dark']) {
   const ctx = await browser.newContext({ viewport: { width: 1680, height: 1050 }, colorScheme: theme });
@@ -49,7 +49,7 @@ for (const theme of ['light', 'dark']) {
     await page.waitForTimeout(500);
     const shots = tabs.length ? tabs : [null];
     for (const tab of shots) {
-      if (tab) { await page.getByRole('button', { name: tab, exact: true }).first().click(); await page.waitForTimeout(400); }
+      if (tab) { await page.locator('main').getByRole('button', { name: tab, exact: true }).first().click(); await page.waitForTimeout(400); }
       if (id === 'inbox') { const first = page.locator('[class*="InboxItem"], article, li').first(); await first.click().catch(() => {}); await page.waitForTimeout(300); }
       const name = `${theme}-${id}${tab ? '-' + tab.toLowerCase().replace(/[^a-z]+/g, '_') : ''}`;
       await page.screenshot({ path: resolve(out, `${name}.png`), fullPage: true });

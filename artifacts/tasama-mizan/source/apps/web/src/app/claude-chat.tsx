@@ -16,7 +16,7 @@ async function request<T>(path: string, body?: unknown, signal?: AbortSignal): P
 }
 
 export function ClaudeChatRail({ rail }: { rail: ReturnType<typeof useChatRail> }) {
-  const { persona, clientLens, backend, confirmAssistantAction, closePeriodContext, section, focus } = useApp();
+  const { persona, clientLens, backend, confirmAssistantAction, section, focus } = useApp();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
   const [status, setStatus] = useState<'checking' | 'ready' | 'live' | 'error'>('checking');
@@ -32,11 +32,12 @@ export function ClaudeChatRail({ rail }: { rail: ReturnType<typeof useChatRail> 
     controller.current?.abort(); locked.current = false;
     setTurns([]); setDraft(''); setBusy(false); setConfirming(null); setStatus('checking');
     const abort = new AbortController();
+    if (backend.mode !== 'server') { setStatus('error'); return () => { abort.abort(); controller.current?.abort(); }; }
     request<{ configured: boolean }>('/api/assistant/status', undefined, abort.signal)
       .then(result => setStatus(result.configured ? 'ready' : 'error'))
       .catch(() => { if (!abort.signal.aborted) setStatus('error'); });
     return () => { abort.abort(); controller.current?.abort(); };
-  }, [persona.id]);
+  }, [persona.id, backend.mode]);
 
   async function ask(question: string) {
     if (!question.trim() || locked.current || confirming) return;
@@ -52,7 +53,7 @@ export function ClaudeChatRail({ rail }: { rail: ReturnType<typeof useChatRail> 
     const abort = new AbortController(); controller.current = abort;
     setTurns(t => [...t, userTurn]);
     try {
-      const result = await request<{ text: string; proposals: Proposal[] }>('/api/assistant/chat', { messages: history, personaId: persona.id, clientId: clientLens, closePeriod: closePeriodContext, section, procedureContext: focus }, abort.signal);
+      const result = await request<{ text: string; proposals: Proposal[] }>('/api/assistant/chat', { messages: history, personaId: persona.id, clientId: clientLens, section, focus }, abort.signal);
       if (generation.current !== currentGeneration) return;
       setStatus('live');
       setTurns(t => [...t, { role: 'assistant', content: result.text, proposals: result.proposals }]);
@@ -90,7 +91,7 @@ export function ClaudeChatRail({ rail }: { rail: ReturnType<typeof useChatRail> 
     transcript={<>
       <div className="mb-3 flex items-center gap-2.5 px-1">
         <AgentAvatar agent={host} size={34} showActivity={busy} />
-        <div className="min-w-0 flex-1"><div className="truncate text-sm text-foreground">{host.name} · {ASSISTANT.arabic}</div><div className="truncate text-[11px] text-muted-foreground">{section === 'close' ? `Close workspace · ${closePeriodContext}` : 'Your finance assistant'}</div></div>
+        <div className="min-w-0 flex-1"><div className="truncate text-sm text-foreground">{host.name} · {ASSISTANT.arabic}</div><div className="truncate text-[11px] text-muted-foreground">{section === 'close' ? 'The September close' : 'Your finance assistant'}</div></div>
       </div>
       {status === 'error' && !turns.length && <p role="status" className="px-3 py-2 text-xs text-warn">Muhasib is currently unavailable. Please try again.</p>}
       {!turns.length && <ChatAssistantTurn avatar={<AgentAvatar agent={host} size={24} showActivity={false} />}>
@@ -113,7 +114,7 @@ export function ClaudeChatRail({ rail }: { rail: ReturnType<typeof useChatRail> 
         </ChatAssistantTurn>)}
       {busy && <p role="status" className="px-3 py-2 text-xs text-muted-foreground">Muhasib is processing your request…</p>}
     </>}
-    suggestions={<ChatSuggestions items={section === 'close' ? [`What blocks the ${closePeriodContext} close?`, 'Which departmental inputs need attention?', 'Which accounting jobs have errors?', 'What needs my review?', 'What is missing from the close pack?'] : SUGGESTIONS} onSelect={q => void ask(q)} />}
+    suggestions={<ChatSuggestions items={section === 'close' ? ['What blocks the September close?', 'Which of the 24 procedures are open?', 'Are the departmental inputs in?', 'Which journals are waiting for approval?', 'Is the bank reconciled?'] : SUGGESTIONS} onSelect={q => void ask(q)} />}
     composer={<ChatComposer value={draft} onChange={setDraft} onSend={() => void ask(draft)} placeholder={busy ? 'Muhasib is processing your request…' : 'Ask Muhasib about billing, cash, the close…'} />}
   />;
 }

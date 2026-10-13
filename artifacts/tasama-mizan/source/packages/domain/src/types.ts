@@ -283,20 +283,32 @@ export type VarianceDriver = {
   provenance: 'synthetic' | 'illustrative';
 };
 
-export type CloseWorkstream = 'Revenue & Billing' | 'Receivables' | 'Cash & Bank' | 'Cost of delivery' | 'Budget & Forecast' | 'Tax' | 'Close pack';
+/** The group a close procedure belongs to in Tasama's own calendar: departmental inputs (1–5) first, then Finance (6–24). */
+export type CloseGroup = 'inputs' | 'finance';
 
+/** How Mizan relates to a procedure: it derives the status from the data, it records a department's input, it is an ERP job Mizan only reads back, or it is outside Mizan entirely. */
+export type CloseCoverage = 'derived' | 'input' | 'erp-job' | 'outside';
+
+/** One of Tasama's 24 monthly closing procedures, as supplied by Tasama (number, area, action, responsible, deadline, automation). */
 export type CloseItem = {
-  id: string;
-  workstream: CloseWorkstream;
-  title: string;
-  owner: string; // persona id
+  id: string; // P01 … P24
+  number: number; // 1..24 — Tasama's own numbering
+  group: CloseGroup;
+  workstream: string; // Tasama's "Area / Department" column
+  title: string; // the procedure, in Tasama's words, shortened
+  owner: string; // persona id, or a department key (hr, requesters, operations, dt)
   agentId: string | null;
-  dueDay: number; // business day of the close, 1..10
-  status: 'done' | 'in_progress' | 'blocked' | 'not_started';
+  /** Tasama's deadline, in their words. */
+  deadline: string;
+  dueDay: number; // business day of the close the deadline falls on, 0 = before month end
+  /** Tasama's own "Automation" column: what their ERP does today. */
+  tasamaAutomation: 'Full' | 'Partial' | 'No' | 'Check with Department';
+  coverage: CloseCoverage;
+  status: 'done' | 'in_progress' | 'blocked' | 'not_started' | 'external';
   blocker?: string;
   evidence?: string;
   /** Derived items re-evaluate their status from the world; authored items keep theirs. */
-  derivedFrom?: 'billing' | 'ar_tie' | 'bank' | 'vendor' | 'budget' | 'zatca' | 'journals';
+  derivedFrom?: 'billing' | 'ar_tie' | 'bank' | 'cash_applied' | 'vendor_coc' | 'vendor_ap' | 'erp_ap' | 'erp_ar' | 'delivery_ops' | 'delivery_dt' | 'journal_vendor' | 'journal_manual' | 'journal_unbilled' | 'journal_deferred' | 'budget' | 'period_close' | 'reports';
 };
 
 export type Journal = {
@@ -478,7 +490,6 @@ export type Opportunity = {
 
 export type World = {
   /** Versioned orchestration workspace; optional for old persisted demo worlds. */
-  closeWorkspace?: import('./close-types').CloseWorkspace;
   asOf: string; // ISO date of the demo
   closingPeriod: string; // YYYY-MM
   closeDay: number; // business day of the close

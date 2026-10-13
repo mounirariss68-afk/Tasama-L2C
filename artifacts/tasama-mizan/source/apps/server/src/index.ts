@@ -17,6 +17,7 @@ import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyAction, type Action } from '@mizan/domain/actions';
+import { demoNow } from '@mizan/domain/world';
 import { ensureSchema, isSeeded, loadWorld, pool, reseed, saveWorld } from './store';
 import { chat, claudeConfigured, confirmedProposal, consumeProposal } from './assistant';
 
@@ -35,9 +36,9 @@ let dbState: { ok: true } | { ok: false; reason: string } = { ok: false, reason:
 async function startDatabase() {
   if (!process.env.DATABASE_URL) { dbState = { ok: false, reason: 'DATABASE_URL is not set. In Replit, open the Database tool and create a PostgreSQL database; the variable is set for you.' }; return; }
   try {
-    // Development creates the imported schema. Publish applies schema changes
-    // to the managed production database; never run DDL at production startup.
-    if (process.env.NODE_ENV !== 'production') await ensureSchema();
+    // Idempotent DDL (create-if-not-exists plus add-column-if-not-exists): safe on every start, development or published.
+    await ensureSchema();
+    // A database seeded by an older build re-seeds itself; the demo world is deterministic, so nothing of value is lost.
     if (!(await isSeeded())) { const w = await reseed(); console.log(`Seeded the synthetic world: ${w.clients.length} clients, ${w.invoices.length} invoices, ${w.bankLines.length} bank lines`); }
     dbState = { ok: true };
   } catch (e) {
@@ -84,7 +85,7 @@ app.post('/api/actions', async (req, res) => {
   try {
     const out = await serial(async () => {
       const prev = await loadWorld();
-      const result = applyAction(prev, action, { personaId: personaId ?? 'omar', now: new Date().toISOString() });
+      const result = applyAction(prev, action, { personaId: personaId ?? 'omar', now: demoNow(prev) });
       if (!result.error) await saveWorld(prev, result.world);
       return result;
     });
@@ -126,7 +127,7 @@ app.post('/api/assistant/confirm', async (req, res) => {
     const result = await serial(async () => {
       const prev = await loadWorld();
       const proposal = confirmedProposal(req.body?.token, req.body?.personaId, prev);
-      const out = applyAction(prev, proposal.action, { personaId: proposal.personaId, now: new Date().toISOString() });
+      const out = applyAction(prev, proposal.action, { personaId: proposal.personaId, now: demoNow(prev) });
       if (out.error) throw new Error(out.error);
       await saveWorld(prev, out.world);
       consumeProposal(proposal.token);

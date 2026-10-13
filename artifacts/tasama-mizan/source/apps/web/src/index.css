@@ -15,10 +15,24 @@
 /* The design system's theme: Tailwind, plugins, tokens and the brand layer. */
 @import "@cognirise/atelier/styles.css";
 
-/* Tasama ultramarine headings; the dark theme uses its accessible blue tint. */
-h1, h2, h3, h4, h5, h6 {
-  color: hsl(var(--primary));
+/* Tasama ultramarine headings (the dark theme uses its accessible blue tint),
+   except inside the navy hero island, where the heading stays light. */
+h1, h2, h3, h4, h5, h6 { color: hsl(var(--primary)); }
+.page-hero h1, .page-hero h2, .page-hero h3 { color: hsl(var(--foreground)); }
+
+/* One rhythm for every screen: the Body container sets 24px top/bottom and
+   32px between sections; panels keep Atelier's own padding. */
+.section-label { margin-top: 0; }
+
+/* StatTile: the state slot is a short note beside the label, not a second
+   label — small, muted, allowed to wrap, never pushing the label off. */
+.glass-l3.px-5.py-4 > .flex.items-start > .ms-auto.shrink-0 {
+  flex-shrink: 1; max-width: 55%; text-align: end; white-space: normal;
+  font-size: 11px; line-height: 1.3; color: hsl(var(--muted-foreground));
 }
+
+/* Chips inside the navy hero island read on navy. */
+.page-hero .chip { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.32); color: #fff; }
 
 /* Posting previews and raw bank descriptions are long; let them wrap inside
    the reader rather than pushing the column. */

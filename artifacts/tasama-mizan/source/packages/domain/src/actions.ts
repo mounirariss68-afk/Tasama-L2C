@@ -11,14 +11,10 @@ import type {
   BankLine, CashReceipt, DunningStage, Invoice, LedgerEntry, ParseJob, Settings, TrailEntry, VendorInvoice, World,
 } from './types';
 import { addDays, vatOf } from './world';
-import { clientOf, eventStatus, poOf, unbilledEvents, toSAR } from './derive';
+import { clientOf, deriveCloseItems, eventStatus, poOf, unbilledEvents, toSAR } from './derive';
 import { creditMemoCall, erpRef, invoiceCall, journalCall, receiptCall, vendorInvoiceCall } from './erp';
-import { applyCloseCommand, invalidateCloseReviews } from './close-actions';
-import { getCloseInstance } from './close-derive';
-import type { CloseCommand } from './close-types';
 
 export type Action =
-  | { type: 'closeWorkspace'; command: CloseCommand }
   | { type: 'releaseInvoice'; id: string }
   | { type: 'rejectDraft'; id: string; reason: string }
   | { type: 'draftForEvent'; eventId: string }
@@ -53,16 +49,6 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export function applyAction(prev: World, action: Action, ctx: ActionContext): ActionResult {
   const w = structuredClone(prev) as World;
-  if (action.type === 'closeWorkspace' || action.type === 'closePeriod') {
-    const command = action.type === 'closeWorkspace' ? action.command : { kind: 'close' as const, period: w.closingPeriod, expectedVersion: getCloseInstance(w).version };
-    const error = applyCloseCommand(w, command, ctx);
-    if (error) return { world: prev, error };
-    w.flags.rev++;
-    return { world: w };
-  }
-  if (getCloseInstance(w).status === 'closed' && !['logPersonTrail', 'updateSettings', 'addJob', 'updateJob'].includes(action.type)) {
-    return { world: prev, error: 'The reviewed close snapshot is locked. CFO must reopen the local period before changing supporting financial records.' };
-  }
   const me = { kind: 'person' as const, id: ctx.personaId };
   const ag = (id: string) => ({ kind: 'agent' as const, id });
   const t = (e: Omit<TrailEntry, 'id' | 'at'> & { at?: string }) => { w.trail.push({ id: `TR-${++w.flags.seq}`, at: e.at ?? ctx.now, ...e }); };
@@ -236,15 +222,21 @@ export function applyAction(prev: World, action: Action, ctx: ActionContext): Ac
     }
     case 'acceptReforecast': {
       w.flags.reforecastAccepted = true;
-      const c = w.closeItems.find((x) => x.id === 'c15'); if (c) { c.status = 'done'; c.evidence = 'Reforecast accepted; Q4 moved for KSIA Phase 2 (Nov), REDC extension (Oct–Dec), SDB MS3 (Dec).'; }
-      const c14 = w.closeItems.find((x) => x.id === 'c14'); if (c14) { c14.status = 'done'; c14.derivedFrom = undefined; }
-      t({ actor: me, kind: 'approved', summary: 'Reforecast accepted — FY2026 forecast re-cut from the schedule and the weighted pipeline' });
+      t({ actor: me, kind: 'approved', summary: 'Reforecast accepted — FY2026 forecast re-cut from the schedule and the weighted pipeline; Q4 moved for KSIA Phase 2 (Nov), REDC extension (Oct–Dec), SDB MS3 (Dec)', recordRef: 'P22' });
       break;
     }
     case 'completeCloseItem': {
-      const c = w.closeItems.find((x) => x.id === action.id); if (!c || c.derivedFrom) return { world: prev, error: 'derived item' };
+      const c = w.closeItems.find((x) => x.id === action.id); if (!c || c.derivedFrom || c.status === 'external') return { world: prev, error: 'This procedure is derived from the data or sits outside Mizan; it cannot be ticked.' };
       c.status = 'done';
-      t({ actor: me, kind: 'approved', summary: `Close item done — ${c.title}`, recordRef: c.id });
+      t({ actor: me, kind: 'approved', summary: `Close procedure ${c.number} recorded as complete — ${c.title}`, recordRef: c.id });
+      break;
+    }
+    case 'closePeriod': {
+      const items = deriveCloseItems(w);
+      const open = items.filter((i) => i.number < 23 && !['done', 'external'].includes(i.status));
+      if (open.length) return { world: prev, error: `${open.length} procedure(s) still open: ${open.map((i) => `P${i.number}`).join(', ')}` };
+      w.flags.periodClosed = true;
+      t({ actor: me, kind: 'approved', summary: `${w.closingPeriod} closed in the ERP — final review and approvals complete; close pack issued`, recordRef: 'P23' });
       break;
     }
     case 'addJob': { w.jobs = [action.job, ...w.jobs.filter((j) => j.id !== action.job.id)]; break; }
@@ -263,7 +255,6 @@ export function applyAction(prev: World, action: Action, ctx: ActionContext): Ac
     case 'logPersonTrail': { t({ actor: me, kind: 'observed', summary: action.summary, detail: action.detail, recordRef: action.recordRef }); break; }
     default: return { world: prev, error: `Unknown action type: ${(action as { type: string }).type}` };
   }
-  invalidateCloseReviews(w, ctx);
   w.flags.rev++;
   return { world: w, created, count };
 }

@@ -98,7 +98,8 @@ create table if not exists pipeline (
 );
 
 create table if not exists close_items (
-  id text primary key, position integer not null, workstream text not null, title text not null, owner text not null, agent_id text, due_day integer not null,
+  id text primary key, position integer not null, number integer not null, group_name text not null, workstream text not null, title text not null, owner text not null, agent_id text,
+  deadline text not null, due_day integer not null, tasama_automation text not null, coverage text not null,
   status text not null, blocker text, evidence text, derived_from text
 );
 
@@ -133,3 +134,10 @@ create table if not exists expenses (
   id text primary key, position integer not null, client_id text not null, description text not null, amount numeric(16,2) not null, expense_date date not null,
   status text not null, job_id text
 );
+
+-- Columns added after the first release (create-if-not-exists leaves existing tables alone).
+alter table close_items add column if not exists number integer not null default 0;
+alter table close_items add column if not exists group_name text not null default 'finance';
+alter table close_items add column if not exists deadline text not null default '';
+alter table close_items add column if not exists tasama_automation text not null default 'Full';
+alter table close_items add column if not exists coverage text not null default 'derived';

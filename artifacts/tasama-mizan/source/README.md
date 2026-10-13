@@ -61,6 +61,10 @@ MIZAN_URL=http://localhost:5000 node apps/web/tools/exercise.mjs    # scenarios,
 MIZAN_URL=http://localhost:5000 node apps/web/tools/screenshot.mjs  # every screen and tab, both themes
 ```
 
+## The demo, step by step
+
+The **Scenarios** screen lists six scripts (happy path, exception, escalation, refusal, cash, close). Pressing one docks the **Demo Director** at the bottom of the display: Back · Step · Play · Stop. Each step switches to the persona whose decision it is, opens the screen to watch, runs a real action through the same reducer every click uses, and lists what changed. Nothing is faked — the trail is the same trail. A scenario that already ran on the world says so and offers the reset. Same pattern as Tasama HR and QIB Jahiz.
+
 ## What it is
 
 Tasama sells managed services, projects, staff augmentation and licence pass-through to PIF-portfolio companies, government entities and inbound multinationals. Today the join between proposal, client PO, delivered work, invoice, collection and subcontractor cost is a spreadsheet maintained by hand — the one with rows that read *"To Invoice: Missed"*. Mizan is that object, with agents doing the chasing, matching and reconciling, and people deciding.
@@ -71,11 +75,12 @@ Tasama sells managed services, projects, staff augmentation and licence pass-thr
 | --- | --- |
 | **Overview** | Can we close, and where is the money? The lead-to-cash waterfall, the four stages, unbilled by reason, DSO by segment, Budget · Target · Forecast · Actual |
 | **Inbox** | What is waiting on me? Every item ends in a decision, named, with the authority making it |
-| **Lead to cash** | Process (four stages) · Contracts (opportunities read from Salesforce, terms from Sirion) · Orders & schedules (POs, consumption, billing schedule per line) · Billing run · Collections · Clients |
+| **Lead to cash** | Process (four stages) · Contracts & orders (opportunities read from Salesforce, terms from Sirion, POs with consumption and the billing schedule per line) · Billing run · Collections · Clients |
 | **Documents** | Upload a PDF → CogniDocs parse job → canonical envelope → routed to the owning agent (simulated or live) |
-| **Close** | Checklist derived from the data, bank reconciliation per account, budget variance by driver, journals with ERP posting previews |
+| **Close** | Tasama's own 24 closing procedures with their status derived from the data by Iqfal (inputs 1–5, Finance 6–24; Fixed Assets and Leases shown as outside Mizan) · bank reconciliation per account · budget variance by driver · journals with ERP posting previews |
 | **Agents** | Nine agents with declared autonomy, nine workflows grouped by stage with step-level coverage, the decision trail |
-| **Settings** | Personas, Data (where the world lives), ERP dialect (Oracle / Odoo), CogniDocs connection, thresholds, the six demo scenarios |
+| **Scenarios** | The demo's remote control: six scripts the Demo Director plays step by step — narration, trigger, persona, screen, what changed |
+| **Settings** | Personas · Connections (where the world lives, ERP dialect Oracle / Odoo, CogniDocs) · Thresholds |
 
 ### The agents
 
@@ -103,12 +108,15 @@ packages/domain/src/derive.ts           every derivation the screens read
 packages/domain/src/actions.ts          the action reducer — every change a person or agent can make, as a pure function
 packages/domain/src/process.ts          the four stages, their steps and live metrics
 packages/domain/src/workflows.ts        the nine workflows, each tagged with its stage
+packages/domain/src/scenarios.ts        the six Director scripts — steps with narration, trigger, action, screen, persona
 packages/domain/src/erp.ts              the ERP connector, two dialects
 packages/domain/src/cognidocs.ts        the CogniDocs emulator and sample documents
 apps/server/src/index.ts                Express: /api/world, /api/actions, /api/rev, /api/reset, CogniDocs proxy, static
 apps/server/src/store.ts                PostgreSQL store: seed, load, diff-upsert in one transaction
 apps/server/src/schema.sql              the schema (23 tables)
-apps/web/src/app/state.tsx              API client with the local fallback; scenarios as action sequences
+apps/web/src/app/state.tsx              API client with the local fallback; the Director runtime (diffs the world for "what changed")
+apps/web/src/app/director.tsx           the Director bar
+design/Tasama-Monthly-Closing-Procedures.pdf   Tasama's 24 procedures, the source of the close checklist
 apps/web/src/screens/*.tsx              the seven screens
 apps/web/tools/check-world.ts           arithmetic + reducer checks · screenshot.mjs and exercise.mjs drive the built app
 ```
@@ -116,7 +124,7 @@ apps/web/tools/check-world.ts           arithmetic + reducer checks · screensho
 ## Notes for the next build
 
 - **Rollup 4.64.0 hangs** during tree-shaking on any React app (spins in `includeCallArgumentsOfPossibleValues`). `package.json` pins `rollup@4.63.3` and `vite@7.3.6` through `overrides`. Do not remove the pin without testing a build first.
-- The schema is created with `create table if not exists`; a change to a table needs **Reset the demo** (or `drop schema mizan cascade`) on an existing database.
+- The schema is idempotent (`create table if not exists` + `alter table … add column if not exists`) and the seed carries a `SEED_VERSION`; a build whose seed shape changed re-seeds an existing database on start.
 - Replit's managed PostgreSQL requires TLS; the pool enables it when `DATABASE_URL` carries `sslmode=require` (or `PGSSL=true`).
 - The reversed Tasama lockup was derived by Cognirise (Tasama publishes none) — replace before client use.
 - Persona amount limits and the rate card are placeholders; Tasama's delegation of authority and price list are not in the material.

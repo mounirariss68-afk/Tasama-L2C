@@ -1,77 +1,19 @@
+/**
+ * Close — supporting views: bank reconciliation per account, Budget · Target ·
+ * Forecast · Actual with variance drivers, and the journals with their ERP
+ * posting previews. The checklist itself is in close.tsx.
+ */
 import { useState } from 'react';
-import { BookOpenCheck, CalendarCheck, Landmark, Scale, TrendingUp } from 'lucide-react';
+import { BookOpenCheck, Landmark, Scale, TrendingUp } from 'lucide-react';
 import { PageColumns, PageContainer, PageSection, Panel, StatRow, StatTile } from '@cognirise/atelier/layout';
 import { DemoReference, ProvenanceChip, ProvenanceNote } from '@cognirise/atelier/archetypes';
-import { useApp } from '../../app/state';
-import { AgentMark, Btn, Chip, Delta, KV, Money, PersonMark, Table, Trail } from '../../app/bits';
-import { arOpen, bankRec, budgetByLine, budgetByMonth, closeSummary, deferredBalance, fyTotals, marginByClient, recognisedByClientMonth, unbilled, GM_TARGET } from '@mizan/domain/derive';
+import { useApp } from '../app/state';
+import { AgentMark, Btn, Chip, Delta, KV, Money, PersonMark, Table, Trail } from '../app/bits';
+import { arOpen, bankRec, budgetByLine, budgetByMonth, deferredBalance, fyTotals, marginByClient, recognisedByClientMonth, unbilled, GM_TARGET } from '@mizan/domain/derive';
 import { date, money, monthName, pct, period } from '@mizan/domain/format';
-import { BUSINESS_LINE_LABEL, type CloseWorkstream } from '@mizan/domain/types';
+import { BUSINESS_LINE_LABEL } from '@mizan/domain/types';
 import { ERP_LABEL, journalCall } from '@mizan/domain/erp';
-import { BarChart, LineChart, Legend, Meter, SERIES, STATUS } from '../../lib/viz';
-
-
-const WORKSTREAMS: CloseWorkstream[] = ['Revenue & Billing', 'Receivables', 'Cash & Bank', 'Cost of delivery', 'Tax', 'Budget & Forecast', 'Close pack'];
-
-export function Checklist() {
-  const { world, actions, persona, go } = useApp();
-  const s = closeSummary(world);
-  const tone = (st: string) => (st === 'done' ? 'success' : st === 'blocked' ? 'danger' : st === 'in_progress' ? 'primary' : 'muted') as 'success' | 'danger' | 'primary' | 'muted';
-  const days = Array.from({ length: 12 }, (_, i) => i - 1);
-  return (
-    <>
-      <PageSection label="Progress">
-        <StatRow>
-          <StatTile label="Done" value={`${s.done} / ${s.total}`} state={pct(s.done / s.total)} />
-          <StatTile label="Blocked" value={String(s.blocked)} state={s.blocked ? 'named below' : 'none'} trend={{ direction: s.blocked ? 'down' : 'flat', label: s.items.filter((i) => i.status === 'blocked').map((i) => i.workstream).join(', ') || 'clear', sentiment: s.blocked ? 'bad' : 'good' }} />
-          <StatTile label="Unbilled revenue to accrue" value={money(unbilled(world), 'SAR', { compact: true })} state="contract asset" />
-          <StatTile label="Deferred revenue" value={money(deferredBalance(world), 'SAR', { compact: true })} state="contract liability" />
-          <StatTile label="AR sub-ledger" value={money(arOpen(world), 'SAR', { compact: true })} state="= GL 1200" />
-        </StatRow>
-      </PageSection>
-      <PageContainer className="mb-4">
-        <div className="rounded-xl glass-l2 p-3">
-          <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Close calendar — business days</div>
-          <div className="grid grid-cols-12 gap-1">{days.map((d) => { const due = s.items.filter((i) => i.dueDay === d); return (
-            <div key={d} className={`rounded-md border p-1.5 text-center text-[10px] ${d === world.closeDay ? 'border-primary/60 bg-primary/12' : d < world.closeDay ? 'border-border/40 bg-card/30' : 'border-border/40'}`}>
-              <div className="font-mono">{d < 1 ? `D${d}` : `D${d}`}</div>
-              {d === 1 ? <div className="text-muted-foreground">statements</div> : d === 5 ? <div className="text-highlight">target</div> : d === 10 ? <div className="text-muted-foreground">hard close</div> : null}
-              {due.length ? <div className="mt-1 flex flex-wrap justify-center gap-0.5">{due.map((i) => <span key={i.id} title={i.title} className={`h-1.5 w-1.5 rounded-full ${i.status === 'done' ? 'bg-success' : i.status === 'blocked' ? 'bg-danger' : i.status === 'in_progress' ? 'bg-primary' : 'bg-muted-foreground/50'}`} />)}</div> : null}
-            </div>); })}</div>
-        </div>
-      </PageContainer>
-      {WORKSTREAMS.map((ws) => {
-        const items = s.items.filter((i) => i.workstream === ws);
-        return (
-          <PageSection key={ws} label={ws}>
-            <Panel title={<span className="flex items-center gap-2">{ws}<Chip tone={items.every((i) => i.status === 'done') ? 'success' : items.some((i) => i.status === 'blocked') ? 'danger' : 'primary'}>{items.filter((i) => i.status === 'done').length}/{items.length}</Chip></span>}>
-              {items.map((i) => (
-                <div key={i.id} className="flex flex-wrap items-start justify-between gap-3 border-b border-border/30 py-2 last:border-0">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2"><Chip tone={tone(i.status)}>{i.status.replace('_', ' ')}</Chip><span className="text-sm">{i.title}</span></div>
-                    <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground"><span>Due Day {i.dueDay}</span><PersonMark id={i.owner} />{i.agentId ? <AgentMark id={i.agentId} size={18} /> : null}{i.derivedFrom ? <Chip tone="muted">derived</Chip> : null}</div>
-                    {i.blocker ? <div className="mt-1 text-xs text-warn">Blocker: {i.blocker}</div> : null}
-                    {i.evidence ? <div className="mt-1 text-xs text-muted-foreground">Evidence: {i.evidence}</div> : null}
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    {i.derivedFrom === 'billing' ? <Btn small onClick={() => go('l2c', undefined, 'billing')}>Billing</Btn> : null}
-                    {i.derivedFrom === 'bank' || i.derivedFrom === 'ar_tie' ? <Btn small onClick={() => go('close', undefined, 'bank')}>Bank</Btn> : null}
-                    {i.derivedFrom === 'journals' ? <Btn small onClick={() => go('close', undefined, 'journals')}>Journals</Btn> : null}
-                    {i.derivedFrom === 'budget' ? <Btn small onClick={() => go('close', undefined, 'budget')}>Budget</Btn> : null}
-                    {i.derivedFrom === 'zatca' || i.derivedFrom === 'vendor' ? <Btn small onClick={() => go('inbox')}>Inbox</Btn> : null}
-                    {!i.derivedFrom && i.status !== 'done' && i.id !== 'c17' && i.id !== 'c15' ? <Btn small tone="primary" disabled={!(i.owner === persona.id || persona.id === 'noura')} onClick={() => actions.completeCloseItem(i.id)}>Mark done</Btn> : null}
-                    {i.id === 'c15' && i.status !== 'done' ? <Btn small tone="primary" disabled={persona.id !== 'noura'} onClick={() => actions.acceptReforecast()}>Accept reforecast</Btn> : null}
-                    {i.id === 'c17' && i.status !== 'done' ? <Btn small tone="primary" disabled={persona.id !== 'noura' || !s.readyToClose} onClick={() => actions.closePeriod()}>{s.readyToClose ? 'Close the period' : 'Blocked — items open'}</Btn> : null}
-                  </div>
-                </div>
-              ))}
-            </Panel>
-          </PageSection>
-        );
-      })}
-    </>
-  );
-}
+import { BarChart, LineChart, Legend, Meter, SERIES, STATUS } from '../lib/viz';
 
 export function Bank() {
   const { world, actions, persona } = useApp();
@@ -83,7 +25,7 @@ export function Bank() {
   const receiptFor = (id: string) => world.receipts.find((r) => r.bankLineId === id);
   return (
     <>
-      <PageContainer className="mb-4"><div className="flex flex-wrap gap-2">{world.bankAccounts.map((b) => { const r = bankRec(world, b.id); return <button key={b.id} type="button" onClick={() => setAcct(b.id)} className={`rounded-xl border px-3 py-2 text-start ${acct === b.id ? 'border-primary/50 bg-primary/10' : 'border-border/60 bg-card/40 hover:bg-card/70'}`}><div className="text-sm">{b.bank} <span className="text-muted-foreground">· {b.label}</span></div><div className="font-mono text-[11px] text-muted-foreground">{b.currency} · diff {money(r.difference, b.currency)} · {r.unmatchedStatement.length + r.unmatchedLedger.length} open · {b.signedOff ? 'signed off' : r.explained ? 'explained' : 'unexplained'}</div></button>; })}</div></PageContainer>
+      <div><div className="flex flex-wrap gap-2">{world.bankAccounts.map((b) => { const r = bankRec(world, b.id); return <button key={b.id} type="button" onClick={() => setAcct(b.id)} className={`rounded-xl border px-3 py-2 text-start ${acct === b.id ? 'border-primary/50 bg-primary/10' : 'border-border/60 bg-card/40 hover:bg-card/70'}`}><div className="text-sm">{b.bank} <span className="text-muted-foreground">· {b.label}</span></div><div className="font-mono text-[11px] text-muted-foreground">{b.currency} · diff {money(r.difference, b.currency)} · {r.unmatchedStatement.length + r.unmatchedLedger.length} open · {b.signedOff ? 'signed off' : r.explained ? 'explained' : 'unexplained'}</div></button>; })}</div></div>
       <PageSection label={`${a.bank} — ${a.label} — ${period(world.closingPeriod)}`}>
         <PageColumns aside={
           <Panel icon={<Landmark size={16} />} title="Proof" action={a.signedOff ? <Chip tone="success">signed off</Chip> : <Chip tone={rec.explained ? 'primary' : 'danger'}>{rec.explained ? 'explained' : 'unexplained'}</Chip>}>
@@ -187,4 +129,3 @@ export function Journals() {
     </PageSection>
   );
 }
-export { CalendarCheck, STATUS };

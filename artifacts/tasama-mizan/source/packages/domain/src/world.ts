@@ -540,24 +540,46 @@ const BUDGET = buildBudget(EVENTS);
 
 /* ----------------------------------------------------- close & journals */
 
+/**
+ * Tasama's own monthly closing procedures — the 24 rows of their "Monthly
+ * Closing Procedures" table (area, action, responsible, deadline, automation),
+ * in their order and numbering. Departmental inputs (1–5) come first; Finance
+ * starts the close when they are in (6–24, each "2 WD after completing 1–5").
+ * Status is derived from the world where Mizan covers the procedure; ERP jobs
+ * Mizan only reads back are labelled as such; Fixed Assets and Leases sit
+ * outside Mizan and are shown, not pretended.
+ */
+const P = (number: number, group: CloseItem['group'], workstream: string, title: string, owner: string, agentId: string | null, deadline: string, dueDay: number,
+  tasamaAutomation: CloseItem['tasamaAutomation'], coverage: CloseItem['coverage'], status: CloseItem['status'], extra: Partial<CloseItem> = {}): CloseItem =>
+  ({ id: `P${String(number).padStart(2, '0')}`, number, group, workstream, title, owner, agentId, deadline, dueDay, tasamaAutomation, coverage, status, ...extra });
+
 export const CLOSE_ITEMS: CloseItem[] = [
-  { id: 'c01', workstream: 'Revenue & Billing', title: 'Billing schedule complete for September — every due event invoiced, blocked or accrued', owner: 'faisal', agentId: 'fatoora', dueDay: 2, status: 'in_progress', derivedFrom: 'billing' },
-  { id: 'c02', workstream: 'Revenue & Billing', title: 'Unbilled revenue accrual posted (delivered, evidenced, not invoiced)', owner: 'reem', agentId: 'iqfal', dueDay: 3, status: 'not_started', derivedFrom: 'journals' },
-  { id: 'c03', workstream: 'Revenue & Billing', title: 'Deferred revenue release — FAIC annual subscription, September tranche', owner: 'reem', agentId: 'iqfal', dueDay: 3, status: 'not_started', derivedFrom: 'journals' },
-  { id: 'c04', workstream: 'Revenue & Billing', title: 'Revenue assurance findings reviewed and dispositioned', owner: 'faisal', agentId: 'hares', dueDay: 3, status: 'in_progress' },
-  { id: 'c05', workstream: 'Receivables', title: 'AR sub-ledger ties to GL control account', owner: 'omar', agentId: 'iqfal', dueDay: 4, status: 'not_started', derivedFrom: 'ar_tie' },
-  { id: 'c06', workstream: 'Receivables', title: 'Ageing reviewed; dunning stages confirmed with KAMs', owner: 'faisal', agentId: 'tahseel', dueDay: 4, status: 'in_progress' },
-  { id: 'c07', workstream: 'Receivables', title: 'Bad-debt provision assessed (nothing over 90 days)', owner: 'reem', agentId: 'tahseel', dueDay: 5, status: 'not_started' },
-  { id: 'c08', workstream: 'Cash & Bank', title: 'Bank statements received for all three accounts (due Day 1)', owner: 'omar', agentId: 'tasweya', dueDay: 1, status: 'done', evidence: 'SNB and Al Rajhi via CogniDocs 1 Oct; SAB USD via CogniDocs 2 Oct' },
-  { id: 'c09', workstream: 'Cash & Bank', title: 'Cash applied — no unapplied receipts', owner: 'omar', agentId: 'tasweya', dueDay: 3, status: 'in_progress', derivedFrom: 'bank' },
-  { id: 'c10', workstream: 'Cash & Bank', title: 'Bank reconciliations signed off — SNB, Al Rajhi, SAB USD', owner: 'reem', agentId: 'tasweya', dueDay: 4, status: 'in_progress', derivedFrom: 'bank' },
-  { id: 'c11', workstream: 'Cost of delivery', title: 'Vendor invoices matched or accrued; no unmatched pass-through cost', owner: 'omar', agentId: 'mawrid', dueDay: 4, status: 'in_progress', derivedFrom: 'vendor' },
-  { id: 'c12', workstream: 'Cost of delivery', title: 'Gross margin by client and line reviewed against the 23% target', owner: 'noura', agentId: 'mizaniya', dueDay: 6, status: 'not_started' },
-  { id: 'c13', workstream: 'Tax', title: 'VAT output reconciled to cleared ZATCA invoices (no rejected invoices outstanding)', owner: 'omar', agentId: 'fatoora', dueDay: 4, status: 'blocked', derivedFrom: 'zatca' },
-  { id: 'c14', workstream: 'Budget & Forecast', title: 'Budget · Target · Forecast · Actual updated and variances explained by driver', owner: 'noura', agentId: 'mizaniya', dueDay: 5, status: 'in_progress', derivedFrom: 'budget' },
-  { id: 'c15', workstream: 'Budget & Forecast', title: 'Reforecast accepted by FP&A', owner: 'noura', agentId: 'mizaniya', dueDay: 6, status: 'not_started' },
-  { id: 'c16', workstream: 'Close pack', title: 'Management accounts draft with schedules (AR, unbilled, deferred, bank, cost)', owner: 'reem', agentId: 'iqfal', dueDay: 7, status: 'not_started' },
-  { id: 'c17', workstream: 'Close pack', title: 'CFO review and period close', owner: 'noura', agentId: null, dueDay: 8, status: 'not_started' },
+  P(1, 'inputs', 'Finance – Closing Coordination', 'Communicate and monitor the closing calendar, cut-off dates and required submissions; follow up outstanding inputs from HR, Requesters, Operations and D&T', 'omar', 'iqfal', '25th of each month', 0, 'No', 'derived', 'done',
+    { evidence: 'Calendar and cut-offs issued 25 Sep to HR, Requesters, Operations and D&T; Iqfal follows up the inputs below and reports what is still outstanding.' }),
+  P(2, 'inputs', 'Human Resources / Payroll', 'Complete the monthly payroll run (salaries, allowances, deductions, adjustments, final settlements) and provide the final payroll output to Finance', 'hr', null, '3 WD after the payroll has been paid out', 2, 'Check with Department', 'input', 'done',
+    { evidence: 'Payroll paid 25 Sep; final payroll output received from HR on 30 Sep (aggregate totals only — no employee data enters Mizan).' }),
+  P(3, 'inputs', 'Requesters / Business Owners', 'Complete the Certificate of Completion in the ERP for all goods and services received or completed during the month', 'requesters', 'mawrid', '2 WD after month-end', 2, 'Full', 'derived', 'in_progress', { derivedFrom: 'vendor_coc' }),
+  P(4, 'inputs', 'Operations', 'Submit the monthly schedule of completed works and services and the related client invoices', 'operations', 'shahid', '2 WD after month-end', 2, 'Check with Department', 'derived', 'in_progress', { derivedFrom: 'delivery_ops' }),
+  P(5, 'inputs', 'D&T', 'Submit the monthly schedule of completed works and services and the related client invoices', 'dt', 'shahid', '2 WD after month-end', 2, 'Check with Department', 'derived', 'in_progress', { derivedFrom: 'delivery_dt' }),
+  P(6, 'finance', 'Finance – Cash Management', 'Complete bank reconciliations and investigate all unmatched or outstanding transactions', 'reem', 'tasweya', '2 WD after completing 1–5', 4, 'Full', 'derived', 'in_progress', { derivedFrom: 'bank' }),
+  P(7, 'finance', 'Finance – Cash Management', 'Run Create Accounting for Cash Management and resolve accounting errors before posting to GL', 'omar', 'tasweya', '2 WD after completing 1–5', 4, 'Full', 'erp-job', 'in_progress', { derivedFrom: 'cash_applied' }),
+  P(8, 'finance', 'Finance – Accounts Payable', 'Ensure all required invoice approvals are completed and follow up material pending invoices', 'omar', 'mawrid', '2 WD after completing 1–5', 4, 'Full', 'derived', 'in_progress', { derivedFrom: 'vendor_ap' }),
+  P(9, 'finance', 'Finance – Accounts Payable', 'Run Create Accounting / Multiperiod for AP and resolve accounting errors before posting to GL', 'omar', 'mawrid', '2 WD after completing 1–5', 4, 'Full', 'erp-job', 'not_started', { derivedFrom: 'erp_ap' }),
+  P(10, 'finance', 'Finance – AP / GL', 'Run the accrual for CoCs and resolve accounting errors before posting to GL', 'reem', 'mawrid', '2 WD after completing 1–5', 4, 'Full', 'derived', 'not_started', { derivedFrom: 'journal_vendor' }),
+  P(11, 'finance', 'Finance – GL', 'Review all costs and book all material manual accrual entries', 'reem', 'iqfal', '2 WD after completing 1–5', 4, 'Partial', 'derived', 'not_started', { derivedFrom: 'journal_manual' }),
+  P(12, 'finance', 'Finance – Fixed Assets', 'Transfer eligible asset purchases from AP / Mass Additions and verify completeness of additions', 'omar', null, '2 WD after completing 1–5', 4, 'Full', 'outside', 'external'),
+  P(13, 'finance', 'Finance – Fixed Assets', 'Capitalise completed CIP / project items where applicable', 'omar', null, '2 WD after completing 1–5', 4, 'Full', 'outside', 'external'),
+  P(14, 'finance', 'Finance – Fixed Assets', 'Run monthly depreciation and amortisation and review significant or unusual movements', 'omar', null, '2 WD after completing 1–5', 4, 'Full', 'outside', 'external'),
+  P(15, 'finance', 'Finance – Leases', 'Run monthly lease interest and outstanding lease invoices', 'omar', null, '2 WD after completing 1–5', 4, 'Full', 'outside', 'external'),
+  P(16, 'finance', 'Finance – Fixed Assets', 'Run Create Accounting for Fixed Assets, resolve errors and reconcile the FA sub-ledger with GL', 'omar', null, '2 WD after completing 1–5', 4, 'Full', 'outside', 'external'),
+  P(17, 'finance', 'Finance – Receivables', 'Ensure all client invoices and credit notes are recorded in the ERP', 'faisal', 'fatoora', '2 WD after completing 1–5', 4, 'Full', 'derived', 'in_progress', { derivedFrom: 'billing' }),
+  P(18, 'finance', 'Finance – Receivables', 'Review outstanding receivables and unapplied receipts', 'faisal', 'tahseel', '2 WD after completing 1–5', 4, 'Partial', 'derived', 'in_progress', { derivedFrom: 'ar_tie' }),
+  P(19, 'finance', 'Finance – Receivables', 'Validate all services delivered to clients and book the revenue where it is recognised', 'reem', 'iqfal', '2 WD after completing 1–5', 4, 'No', 'derived', 'not_started', { derivedFrom: 'journal_unbilled' }),
+  P(20, 'finance', 'Finance – Receivables', 'Review both unearned and unbilled revenue balances', 'reem', 'iqfal', '2 WD after completing 1–5', 4, 'Partial', 'derived', 'not_started', { derivedFrom: 'journal_deferred' }),
+  P(21, 'finance', 'Finance – Receivables', 'Run Create Accounting for AR and resolve accounting errors before posting to GL', 'omar', 'fatoora', '2 WD after completing 1–5', 4, 'Full', 'erp-job', 'blocked', { derivedFrom: 'erp_ar' }),
+  P(22, 'finance', 'Finance – Reporting', 'Review the monthly P&L and balance sheet against prior month, budget and expectations; investigate variances and post corrections', 'noura', 'mizaniya', '2 WD after completing 1–5', 4, 'No', 'derived', 'in_progress', { derivedFrom: 'budget' }),
+  P(23, 'finance', 'Finance – Reporting', 'Complete the final review and approvals, then close the accounting period in the ERP', 'noura', 'iqfal', '2 WD after completing 1–5', 4, 'Full', 'derived', 'not_started', { derivedFrom: 'period_close' }),
+  P(24, 'finance', 'Finance – Reporting', 'Prepare the monthly reports and update the dashboard', 'reem', 'iqfal', '2 WD after completing 1–5', 4, 'No', 'derived', 'not_started', { derivedFrom: 'reports' }),
 ];
 
 export const JOURNALS: Journal[] = [
@@ -615,6 +637,12 @@ export const TRAIL: TrailEntry[] = [
 ];
 
 /* ---------------------------------------------------------------- world */
+
+/** The demo's clock: the world's as-of date with the real time of day, Riyadh time — so trail entries written during a demo sit on Day 4 of the close, not on whatever day the room meets. */
+export function demoNow(world: { asOf: string }, real: Date = new Date()): string {
+  const riyadh = new Date(real.getTime() + 3 * 3600_000);
+  return `${world.asOf}T${riyadh.toISOString().slice(11, 19)}+03:00`;
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   erp: 'oracle',
