@@ -8,6 +8,8 @@ import { AgentAvatar, AgentAutonomyChip, DecisionTrail, TrailEntry as TrailRow }
 import { useApp } from './state';
 import { AGENTS, agentById, avatarFor } from '@mizan/domain/agents';
 import { DEPARTMENTS, PERSONAS } from '@mizan/domain/personas';
+import { describeCall, parseCallText, type ErpCall } from '@mizan/domain/erp';
+import type { ErpSystem } from '@mizan/domain/types';
 import { dateTime, money } from '@mizan/domain/format';
 import type { EventStatus } from '@mizan/domain/derive';
 import { EVENT_STATUS_LABEL } from '@mizan/domain/derive';
@@ -86,20 +88,34 @@ export function Trail({ entries, limit }: { entries: TrailEntry[]; limit?: numbe
   );
 }
 
-/** A trail entry's detail: a sentence shows inline; an ERP call (method, path, JSON body) stays folded behind one click so the trail reads as decisions, not payloads. */
-function TrailDetail({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  const isCall = /^(POST|GET|PUT|PATCH|DELETE)\s|^\{|\n\{/.test(text);
-  if (!isCall) return <p className="text-xs leading-snug text-muted-foreground">{text}</p>;
-  const head = text.split('\n')[0];
+/**
+ * What the connector posts, as finance reads it: the system, the object, the
+ * fields that matter and the lines summarised. The literal API call stays one
+ * click away for whoever wants it; it is never the default view.
+ */
+export function PostingPreview({ call, erp, compact = false }: { call: ErpCall; erp?: ErpSystem; compact?: boolean }) {
+  const [raw, setRaw] = useState(false);
+  const d = describeCall(call, erp);
   return (
-    <div>
-      <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground hover:text-foreground">
-        <span className="rounded border border-border/60 px-1 py-px">{open ? 'hide' : 'show'} the ERP call</span><span className="truncate">{head}</span>
-      </button>
-      {open ? <pre className="mt-1.5 whitespace-pre-wrap font-mono text-[10.5px] leading-snug text-muted-foreground">{text}</pre> : null}
+    <div className={compact ? '' : 'rounded-md border border-border/50 bg-card/40 p-2.5'}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs"><span className="font-medium">{d.object}</span><span className="text-muted-foreground"> → {d.system}</span></span>
+        <button type="button" onClick={() => setRaw((o) => !o)} className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground">{raw ? 'hide' : 'show'} the API call</button>
+      </div>
+      <dl className={`mt-1.5 grid gap-x-6 gap-y-0.5 text-[11.5px] ${compact ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
+        {d.fields.map(([k, v]) => <div key={k} className="flex min-w-0 items-baseline justify-between gap-2"><dt className="shrink-0 text-muted-foreground">{k}</dt><dd className="truncate text-end font-mono tabular-nums" title={v}>{v}</dd></div>)}
+      </dl>
+      {call.note ? <p className="mt-1.5 text-[11px] text-muted-foreground">{call.note}</p> : null}
+      {raw ? <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded border border-border/40 bg-background/60 p-2 font-mono text-[10.5px] leading-snug text-muted-foreground">{d.technical}</pre> : null}
     </div>
   );
+}
+
+/** A trail entry's detail: a sentence shows inline; an ERP call shows as a posting summary, the literal call folded. */
+function TrailDetail({ text }: { text: string }) {
+  const call = parseCallText(text);
+  if (!call) return <p className="text-xs leading-snug text-muted-foreground">{text}</p>;
+  return <PostingPreview call={call} compact />;
 }
 
 export type Tab = { id: string; label: string; hint?: string; body: () => ReactNode };

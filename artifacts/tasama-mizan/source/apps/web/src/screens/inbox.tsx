@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { PageContainer, PageMasthead } from '@cognirise/atelier/layout';
 import { DecisionBar, DemoReference, InboxFilters, InboxItem, InboxLayout, InboxList, InboxReader, InboxTabs, ReaderSection, ProvenanceChip } from '@cognirise/atelier/archetypes';
 import { useApp } from '../app/state';
-import { Body, AgentMark, Btn, Chip, EventStatusChip, KV, Money, Trail } from '../app/bits';
+import { Body, AgentMark, Btn, Chip, EventStatusChip, KV, Money, PostingPreview, Trail } from '../app/bits';
 import { bankRec, clientOf, eventStatus, inboxItems, invoiceOf, lineOf, poConsumption, type InboxItemModel } from '@mizan/domain/derive';
 import { date, money, pct } from '@mizan/domain/format';
 import { ERP_LABEL, invoiceCall, journalCall, receiptCall } from '@mizan/domain/erp';
@@ -94,7 +94,7 @@ function Reader({ item, canAct }: { item: InboxItemModel; canAct: boolean }) {
       body = (<>
         <ReaderSection label="Invoice"><KV rows={[['Client', client!.name], ['PO', <DemoReference>{inv.poId}</DemoReference>], ['Line', line.activity], ['Billing event', ev.label], ['Net', money(inv.net, inv.currency)], ['VAT 15%', money(inv.vat, inv.currency)], ['Gross', money(inv.gross, inv.currency)], ['Due', `${date(inv.dueDate)} (${client!.paymentTermsDays} days)`], ['Buyer VAT no.', client!.vatNo ?? <span className="text-danger">missing — ZATCA will reject</span>]]} /></ReaderSection>
         <ReaderSection label="Evidence">{ev.evidence.map((v) => <div key={v.label} className="text-xs">✓ {v.label} <span className="text-muted-foreground">· {v.source} · {date(v.date)}</span></div>)}{ev.coc !== 'not_required' ? <div className="text-xs">CoC: {ev.coc}</div> : null}</ReaderSection>
-        <ReaderSection label={`Posting preview — ${erp}`}><pre className="overflow-x-auto rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[10.5px] leading-snug text-muted-foreground">{call.method} {call.path}{'\n'}{JSON.stringify(call.body, null, 1)}</pre><p className="mt-1 text-[11px] text-muted-foreground">{call.note}</p></ReaderSection>
+        <ReaderSection label={`Posting preview — ${erp}`}><PostingPreview call={call} erp={settings.erp} /></ReaderSection>
       </>);
       bar = (<DecisionBar prompt={item.decision}>{notMine}<Btn tone="ghost" onClick={() => actions.rejectDraft(inv.id, reason || 'returned to Fatoora')} disabled={!canAct}>Reject draft</Btn><Btn tone="primary" onClick={() => actions.releaseInvoice(inv.id)} disabled={!canAct}>Release to {settings.erp === 'oracle' ? 'Oracle AR' : 'Odoo'}</Btn></DecisionBar>);
       break;
@@ -115,7 +115,7 @@ function Reader({ item, canAct }: { item: InboxItemModel; canAct: boolean }) {
         <ReaderSection label="Why it is blocked"><p className="text-sm leading-snug">{ev.note ?? 'The contract requires a certificate of completion before this event can be invoiced.'}</p></ReaderSection>
         <ReaderSection label="Billing event"><KV rows={[['PO', <DemoReference>{ev.poId}</DemoReference>], ['Line', line.activity], ['Expected', money(ev.expectedAmount, ev.currency)], ['CoC status', ev.coc], ['CoC sent', ev.cocSentOn ? date(ev.cocSentOn) : '—'], ['Reminder cadence', settings.cocReminderDays.map((d) => `+${d}`).join(', ') + ' working days']]} /></ReaderSection>
         <ReaderSection label="Evidence pack attached">{ev.evidence.map((v) => <div key={v.label} className="text-xs">✓ {v.label} <span className="text-muted-foreground">· {v.source} · {date(v.date)}</span></div>)}</ReaderSection>
-        <ReaderSection label={item.type === 'approve_coc' ? 'Draft request' : 'Draft escalation'}><pre className="whitespace-pre-wrap rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[11px] leading-snug">{item.type === 'approve_coc' ? `To: ${client!.short} Finance / PMO\nSubject: Certificate of completion — ${ev.label}\n\nPlease find attached the delivery evidence for ${ev.label} under ${ev.poId}. We would be grateful for the signed certificate so that invoicing can proceed per the agreement.` : `To: ${client!.short} Programme Sponsor\nCc: ${client!.kam} (Tasama KAM)\nSubject: Escalation — certificate of completion outstanding for ${ev.label}\n\nThe UAT exit report was accepted in your PMIS on ${ev.evidence[0]?.date ?? ''}. The certificate request of ${ev.cocSentOn ? date(ev.cocSentOn) : ''} and two reminders have not been answered. Without it, SAR ${ev.expectedAmount.toLocaleString('en-US')} cannot be invoiced and the programme's September position is understated on both sides. May we have the signed certificate, or the reason it is withheld, by Thursday?`}</pre></ReaderSection>
+        <ReaderSection label={item.type === 'approve_coc' ? 'Draft request' : 'Draft escalation'}><div className="whitespace-pre-wrap rounded-md border border-border/50 bg-card/40 px-3 py-2 text-xs leading-relaxed">{item.type === 'approve_coc' ? `To: ${client!.short} Finance / PMO\nSubject: Certificate of completion — ${ev.label}\n\nPlease find attached the delivery evidence for ${ev.label} under ${ev.poId}. We would be grateful for the signed certificate so that invoicing can proceed per the agreement.` : `To: ${client!.short} Programme Sponsor\nCc: ${client!.kam} (Tasama KAM)\nSubject: Escalation — certificate of completion outstanding for ${ev.label}\n\nThe UAT exit report was accepted in your PMIS on ${ev.evidence[0]?.date ?? ''}. The certificate request of ${ev.cocSentOn ? date(ev.cocSentOn) : ''} and two reminders have not been answered. Without it, SAR ${ev.expectedAmount.toLocaleString('en-US')} cannot be invoiced and the programme's September position is understated on both sides. May we have the signed certificate, or the reason it is withheld, by Thursday?`}</div></ReaderSection>
       </>);
       bar = (<DecisionBar prompt={item.decision}>{notMine}<Btn tone="ghost" disabled={!canAct} onClick={() => actions.signCoc(ev.id)}>Record CoC as signed (received outside Mizan)</Btn><Btn tone="primary" disabled={!canAct} onClick={() => (item.type === 'approve_coc' ? actions.sendCoc(ev.id) : actions.escalateCoc(ev.id))}>{item.type === 'approve_coc' ? 'Approve and send' : 'Approve escalation'}</Btn></DecisionBar>);
       break;
@@ -125,7 +125,7 @@ function Reader({ item, canAct }: { item: InboxItemModel; canAct: boolean }) {
       const days = Math.round((Date.parse(world.asOf) - Date.parse(inv.dueDate)) / 86_400_000);
       body = (<>
         <ReaderSection label="Invoice"><KV rows={[['Invoice', <DemoReference>{inv.id}</DemoReference>], ['Gross', money(inv.gross, inv.currency)], ['Due', date(inv.dueDate)], ['Days overdue', days], ['Channel', client!.channel], ['Current stage', dn.stage], ['Proposed', dn.proposedStage]]} /></ReaderSection>
-        <ReaderSection label="Draft notice"><pre className="whitespace-pre-wrap rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[11px] leading-snug">{dn.draft}</pre></ReaderSection>
+        <ReaderSection label="Draft notice"><div className="whitespace-pre-wrap rounded-md border border-border/50 bg-card/40 px-3 py-2 text-xs leading-relaxed">{dn.draft}</div></ReaderSection>
         <ReaderSection label="Change the stage (override — give the reason)">
           <div className="flex flex-wrap gap-2">
             <select value={stage} onChange={(e) => setStage(e.target.value as DunningStage)} className="rounded-md border border-border/70 bg-card/60 px-2 py-1 text-xs"><option value="">Keep {dn.proposedStage}</option>{(['reminder', 'second', 'formal', 'escalated'] as DunningStage[]).map((s) => <option key={s} value={s}>{s}</option>)}</select>
@@ -148,7 +148,7 @@ function Reader({ item, canAct }: { item: InboxItemModel; canAct: boolean }) {
           {r.shortfall ? <div className="flex justify-between text-xs text-warn"><span>Shortfall → bank charges (tolerance SAR {settings.cashTolerance})</span><Money v={r.shortfall} /></div> : null}
           <p className="mt-2 text-xs text-muted-foreground">{r.note}</p>
         </ReaderSection>
-        <ReaderSection label={`Posting preview — ${erp}`}><pre className="overflow-x-auto rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[10.5px] leading-snug text-muted-foreground">{call.method} {call.path}{'\n'}{JSON.stringify(call.body, null, 1)}</pre></ReaderSection>
+        <ReaderSection label={`Posting preview — ${erp}`}><PostingPreview call={call} erp={settings.erp} /></ReaderSection>
       </>);
       bar = (<DecisionBar prompt={item.decision}>{notMine}<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason if rejecting" className="rounded-md border border-border/70 bg-card/60 px-2 py-1 text-xs" /><Btn tone="ghost" disabled={!canAct || !reason} onClick={() => actions.rejectReceipt(r.id, reason)}>Reject match</Btn><Btn tone="primary" disabled={!canAct} onClick={() => actions.applyReceipt(r.id)}>Apply receipt</Btn></DecisionBar>);
       break;
@@ -170,7 +170,7 @@ function Reader({ item, canAct }: { item: InboxItemModel; canAct: boolean }) {
         <ReaderSection label="Journal"><p className="text-sm leading-snug">{j.description}</p>
           <table className="mt-2 w-full text-xs"><thead><tr className="text-start font-mono text-[10px] uppercase text-muted-foreground"><th className="text-start font-normal">Account</th><th className="text-end font-normal">Dr</th><th className="text-end font-normal">Cr</th></tr></thead><tbody>{j.lines.map((l, i) => <tr key={i} className="border-t border-border/30"><td className="py-1">{l.account}</td><td className="py-1 text-end font-mono tabular-nums">{l.dr ? money(l.dr).replace('SAR ', '') : ''}</td><td className="py-1 text-end font-mono tabular-nums">{l.cr ? money(l.cr).replace('SAR ', '') : ''}</td></tr>)}</tbody></table>
           {j.kind === 'Unbilled revenue accrual' ? <p className="mt-2 text-[11px] text-muted-foreground">Amounts are computed at the moment of approval from the delivered-not-invoiced events, so the accrual reflects whatever has been invoiced since the proposal.</p> : null}</ReaderSection>
-        <ReaderSection label={`Posting preview — ${erp}`}><pre className="overflow-x-auto rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[10.5px] leading-snug text-muted-foreground">{call.method} {call.path}{'\n'}{JSON.stringify(call.body, null, 1)}</pre><p className="mt-1 text-[11px] text-muted-foreground">{call.note}</p></ReaderSection>
+        <ReaderSection label={`Posting preview — ${erp}`}><PostingPreview call={call} erp={settings.erp} /></ReaderSection>
       </>);
       bar = (<DecisionBar prompt={item.decision}>{notMine}<Btn tone="primary" disabled={!canAct} onClick={() => actions.approveJournal(j.id)}>Approve and post</Btn></DecisionBar>);
       break;

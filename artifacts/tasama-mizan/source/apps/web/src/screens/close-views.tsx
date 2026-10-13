@@ -8,7 +8,7 @@ import { BookOpenCheck, Landmark, Scale, TrendingUp } from 'lucide-react';
 import { PageColumns, PageContainer, PageSection, Panel, StatRow, StatTile } from '@cognirise/atelier/layout';
 import { DemoReference, ProvenanceChip, ProvenanceNote } from '@cognirise/atelier/archetypes';
 import { useApp } from '../app/state';
-import { AgentMark, Btn, Chip, Delta, KV, Money, PersonMark, Table, Trail } from '../app/bits';
+import { AgentMark, Btn, Chip, Delta, KV, Money, PersonMark, PostingPreview, Table, Trail } from '../app/bits';
 import { arOpen, bankRec, budgetByLine, budgetByMonth, deferredBalance, fyTotals, marginByClient, recognisedByClientMonth, unbilled, GM_TARGET } from '@mizan/domain/derive';
 import { date, money, monthName, pct, period } from '@mizan/domain/format';
 import { BUSINESS_LINE_LABEL } from '@mizan/domain/types';
@@ -122,7 +122,7 @@ export function Journals() {
             <p className="text-xs leading-snug text-muted-foreground">{j.description}</p>
             <table className="mt-2 w-full text-xs"><tbody>{j.lines.map((l, i) => <tr key={i} className="border-t border-border/30"><td className="py-1">{l.account}</td><td className="py-1 text-end font-mono tabular-nums">{l.dr ? money(l.dr).replace('SAR ', '') : ''}</td><td className="py-1 text-end font-mono tabular-nums">{l.cr ? money(l.cr).replace('SAR ', '') : ''}</td></tr>)}</tbody></table>
             {j.kind === 'Unbilled revenue accrual' && j.status === 'proposed' ? <p className="mt-1 text-[11px] text-muted-foreground">Current unbilled: {money(unbilled(world))} — this is what will post.</p> : total ? <p className="mt-1 text-[11px] text-muted-foreground">Total {money(total)}</p> : null}
-            <details className="mt-2"><summary className="cursor-pointer text-[11px] text-muted-foreground">Posting preview — {call.method} {call.path}</summary><pre className="mt-1 overflow-x-auto rounded-md border border-border/50 bg-card/40 p-2 font-mono text-[10.5px] leading-snug text-muted-foreground">{JSON.stringify(call.body, null, 1)}</pre></details>
+            <div className="mt-2"><PostingPreview call={call} erp={settings.erp} compact /></div>
             {j.status === 'proposed' ? <div className="mt-2"><Btn small tone="primary" disabled={!['reem', 'noura'].includes(persona.id)} onClick={() => actions.approveJournal(j.id)}>Approve and post</Btn></div> : null}
           </Panel>); })}
       </PageColumns>

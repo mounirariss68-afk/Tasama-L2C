@@ -41,6 +41,10 @@ Tasama's own "Monthly Closing Procedures" (24 rows: area, action, responsible, d
 
 Scenarios are step scripts (`packages/domain/src/scenarios.ts`): title, narration, trigger, action, screen, persona. The Director bar (`apps/web/src/app/director.tsx`) plays them one step at a time — Back / Step / Play / Stop — switches the persona, opens the screen, runs the action through `POST /api/actions`, and lists what changed by diffing the world before and after. A scenario that already ran on the world says so and offers Reset. This is the same demo pattern as Tasama HR and QIB Jahiz; keep it.
 
+## ERP postings in words (13 Oct 2026)
+
+Every ERP call Mizan shows — the Inbox posting preview, the Journals tab, the decision trail, Muhasib's proposal card — renders through `PostingPreview` (`apps/web/src/app/bits.tsx`), which uses `describeCall` in `packages/domain/src/erp.ts` to say the system, the object and the fields in finance language; the literal API call sits behind a "show the API call" toggle. Trail entries store a call as `METHOD path\n{json}` so `parseCallText` can rebuild it. Never render raw JSON by default anywhere in the UI: the user rejected it on sight.
+
 ## Product Safety
 
 Everything is synthetic, except the client-company names described in the original README. External ERP, CRM, CLM, tax and bank connectors remain simulated.

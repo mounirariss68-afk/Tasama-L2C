@@ -52,3 +52,59 @@ export function vendorInvoiceCall(erp: ErpSystem, v: { vendorName: string; invoi
 export function erpRef(erp: ErpSystem, kind: 'AR' | 'AP' | 'GL' | 'RCPT', n: number) {
   return erp === 'oracle' ? `${kind === 'AR' ? 'ARTRX' : kind === 'AP' ? 'APINV' : kind === 'GL' ? 'GLJE' : 'ARRCT'}-${(300100 + n).toString()}` : `${kind === 'AR' ? 'INV/2026/' : kind === 'AP' ? 'BILL/2026/' : kind === 'GL' ? 'MISC/2026/' : 'BNK1/2026/'}${String(n).padStart(4, '0')}`;
 }
+
+/* ------------------------------------------------------------ the call, in words */
+
+const OBJECT_BY_PATH: [RegExp, string][] = [
+  [/receivablesInvoices/, 'Receivables invoice'], [/receivablesCreditMemos/, 'Credit memo'], [/standardReceipts/, 'Cash receipt'],
+  [/erpintegrations/, 'GL journal import'], [/\/invoices$/, 'Payables invoice'],
+  [/account\.payment/, 'Customer payment'], [/account\.move/, 'Journal entry'],
+];
+const LABEL: Record<string, string> = {
+  BusinessUnit: 'Business unit', TransactionSource: 'Source', TransactionType: 'Type', BillToCustomerNumber: 'Customer no.', BillToCustomerName: 'Customer', TransactionDate: 'Date', DueDate: 'Due', InvoiceCurrencyCode: 'Currency', PurchaseOrder: 'Purchase order', TaxRegistrationNumber: 'Tax registration', receivablesInvoiceLines: 'Lines',
+  OriginalTransactionNumber: 'Original invoice', CreditMemoAmount: 'Amount', Reason: 'Reason',
+  ReceiptMethod: 'Method', Amount: 'Amount', CurrencyCode: 'Currency', ReceiptDate: 'Receipt date', CustomerNumber: 'Customer no.', RemittanceBankAccount: 'Bank account', standardReceiptApplications: 'Applied to',
+  OperationName: 'Operation', JobName: 'Job', Document: 'Journal', JournalName: 'Journal', Period: 'Period', Source: 'Source', Lines: 'Lines',
+  InvoiceNumber: 'Invoice no.', Supplier: 'Supplier', InvoiceAmount: 'Amount', InvoiceCurrency: 'Currency', InvoiceDate: 'Invoice date', invoiceLines: 'Lines',
+  move_type: 'Type', partner_id: 'Partner', invoice_date: 'Date', invoice_date_due: 'Due', currency_id: 'Currency', ref: 'Reference', invoice_line_ids: 'Lines', reversed_entry_id: 'Original invoice', amount_total: 'Amount',
+  payment_type: 'Direction', partner_type: 'Partner type', amount: 'Amount', date: 'Date', journal_id: 'Bank journal', reconciled_invoice_ids: 'Applied to', line_ids: 'Lines', purchase_id: 'Purchase order',
+};
+const MOVE_TYPE: Record<string, string> = { out_invoice: 'Customer invoice', out_refund: 'Customer credit note', in_invoice: 'Vendor bill', entry: 'Journal entry' };
+
+export type CallSummary = { system: string; object: string; fields: [string, string][]; technical: string };
+
+const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+const show = (v: unknown): string => v === null || v === undefined ? '—' : typeof v === 'number' ? money(v) : typeof v === 'string' ? v : Array.isArray(v) ? v.map(show).join(', ') : typeof v === 'object' ? Object.values(v as Record<string, unknown>).map(show).join(' · ') : String(v);
+
+/** What the connector will send, as a finance person reads it — system, object, the fields that matter, lines summarised — with the literal call kept alongside. */
+export function describeCall(call: ErpCall, erp?: ErpSystem): CallSummary {
+  const system = erp ? ERP_LABEL[erp] : call.path.startsWith('/json/') ? ERP_LABEL.odoo : ERP_LABEL.oracle;
+  let object = OBJECT_BY_PATH.find(([re]) => re.test(call.path))?.[1] ?? call.path.split('/').pop() ?? 'Record';
+  const body = (call.body ?? {}) as Record<string, unknown>;
+  if (typeof body.move_type === 'string' && MOVE_TYPE[body.move_type]) object = MOVE_TYPE[body.move_type];
+  const fields: [string, string][] = [];
+  const push = (k: string, v: unknown) => {
+    if (v === null || v === undefined || k === 'l10n_sa_confirmation_datetime' || k === 'OperationName') return;
+    const label = LABEL[k] ?? k;
+    if (Array.isArray(v)) {
+      const items = v.map((x) => (Array.isArray(x) ? x[2] : x)) as Record<string, unknown>[];
+      if (k === 'standardReceiptApplications' || k === 'reconciled_invoice_ids') { fields.push([label, items.map((x) => (typeof x === 'object' && x ? show(x.TransactionNumber ?? x) : show(x))).join(', ')]); return; }
+      const total = items.reduce((s, x) => s + (typeof x === 'object' && x ? Number(x.EnteredDr ?? x.debit ?? x.LineAmount ?? (Number(x.UnitSellingPrice ?? x.price_unit ?? 0) * Number(x.Quantity ?? x.quantity ?? 1))) || 0 : 0), 0);
+      const first = items[0] && typeof items[0] === 'object' ? (items[0].Description ?? items[0].name ?? items[0].Account ?? items[0].account_id) : undefined;
+      fields.push([label, `${items.length} line${items.length === 1 ? '' : 's'}${total ? ` · ${money(total)}` : ''}${first && items.length === 1 ? ` — ${String(first)}` : ''}`]);
+      return;
+    }
+    if (typeof v === 'object') { for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) push(k2, v2); return; }
+    if (k === 'move_type') return;
+    fields.push([label, show(v)]);
+  };
+  for (const [k, v] of Object.entries(body)) push(k, v);
+  return { system, object, fields, technical: `${call.method} ${call.path}\n${JSON.stringify(call.body, null, 1)}` };
+}
+
+/** Rebuild a call from the text a trail entry stores ("METHOD path\\n{json}"); null when the text is not a call. */
+export function parseCallText(text: string): ErpCall | null {
+  const m = /^(POST|GET|PUT|PATCH|DELETE)\s(\S+)\n([\s\S]*)$/.exec(text.trim());
+  if (!m) return null;
+  try { return { method: m[1], path: m[2], body: JSON.parse(m[3]), note: '' }; } catch { return null; }
+}

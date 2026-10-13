@@ -8,6 +8,22 @@ type Proposal = { token: string; summary: string; action: { type: string; [key: 
 type Turn = { role: 'user' | 'assistant'; content: string; proposals?: Proposal[]; error?: boolean };
 const SUGGESTIONS = ['What is unbilled?', 'Can we close September?', 'Which invoices are overdue?', 'Explain the budget variance', 'Is the bank reconciled?', 'Run the billing run'];
 
+/** The proposal card says what Muhasib will do in words — never the reducer action as JSON. */
+const ACTION_WORDS: Record<string, string> = {
+  releaseInvoice: 'Release invoice', rejectDraft: 'Reject draft', draftForEvent: 'Draft an invoice for', runBillingRun: 'Run the billing run',
+  fixZatca: 'Correct the VAT number on', sendCoc: 'Send the certificate of completion for', escalateCoc: 'Escalate the certificate of completion for', signCoc: 'Record the signed certificate for',
+  approveDunning: 'Approve the reminder for', holdDunning: 'Hold the reminder for', applyReceipt: 'Apply receipt', rejectReceipt: 'Reject receipt',
+  approveVendor: 'Approve vendor invoice', rejectVendor: 'Reject vendor invoice', approveJournal: 'Approve and post journal', signOffBankRec: 'Sign off the bank reconciliation for',
+  acknowledgeFinding: 'Acknowledge finding', confirmSchedule: 'Confirm the delivery schedule for', acceptReforecast: 'Accept the reforecast', completeCloseItem: 'Record procedure complete:', closePeriod: 'Close the period',
+};
+const REF_KEYS = ['id', 'eventId', 'invoiceId', 'accountId', 'poId'];
+function describeAction(a: Proposal['action']): string {
+  const verb = ACTION_WORDS[a.type] ?? a.type;
+  const ref = REF_KEYS.map((k) => a[k]).find((v) => typeof v === 'string') as string | undefined;
+  const extras = Object.entries(a).filter(([k, v]) => k !== 'type' && !REF_KEYS.includes(k) && v !== undefined && v !== null && typeof v !== 'object').map(([k, v]) => `${k} ${String(v)}`);
+  return [verb, ref, extras.length ? `· ${extras.join(' · ')}` : ''].filter(Boolean).join(' ');
+}
+
 async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal });
   const result = await response.json();
@@ -105,7 +121,7 @@ export function ClaudeChatRail({ rail }: { rail: ReturnType<typeof useChatRail> 
           {turn.proposals?.map(proposal => <div key={proposal.token} className="mt-3 rounded-lg border border-border bg-card/50 p-3">
             <p className="text-xs font-medium">Confirm demo action</p>
             <p className="mt-1 text-xs">{proposal.summary}</p>
-            <pre className="mt-2 whitespace-pre-wrap break-all text-[10px] text-muted-foreground">{JSON.stringify(proposal.action, null, 2)}</pre>
+            <p className="mt-2 text-[11px] text-muted-foreground">Action · {describeAction(proposal.action)}</p>
             {proposal.state ? <p className="mt-2 text-xs">{proposal.result ?? 'Cancelled. Nothing changed.'}</p> : <div className="mt-2 flex gap-2">
               <button type="button" disabled={busy || Boolean(confirming)} onClick={() => void confirm(proposal)} className="rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50">{confirming === proposal.token ? 'Applying…' : 'Confirm action'}</button>
               <button type="button" disabled={Boolean(confirming)} onClick={() => updateProposal(proposal.token, { state: 'cancelled' })} className="rounded border border-border px-3 py-1.5 text-xs">Cancel</button>

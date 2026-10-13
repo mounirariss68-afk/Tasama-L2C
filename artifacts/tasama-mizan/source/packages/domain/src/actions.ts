@@ -79,7 +79,7 @@ export function applyAction(prev: World, action: Action, ctx: ActionContext): Ac
       const call = invoiceCall(erp, inv, client, inv.poId);
       if (!client.vatNo) {
         inv.zatca = 'rejected'; inv.zatcaReason = 'Buyer VAT registration number missing (BR-KSA-14).';
-        t({ actor: ag('fatoora'), kind: 'rejected', autonomy: 'supervised', summary: `${inv.id} posted (${call.method} ${call.path}) but rejected by ZATCA: buyer VAT number missing`, recordRef: inv.id, detail: JSON.stringify(call.body) });
+        t({ actor: ag('fatoora'), kind: 'rejected', autonomy: 'supervised', summary: `${inv.id} posted (${call.method} ${call.path}) but rejected by ZATCA: buyer VAT number missing`, recordRef: inv.id, detail: `${call.method} ${call.path}\n${JSON.stringify(call.body, null, 1)}` });
         break;
       }
       inv.status = 'posted'; inv.zatca = 'cleared'; inv.erpRef = nextErp('AR');
